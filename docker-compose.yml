@@ -1,0 +1,44 @@
+services:
+  # pgvector image: adds the vector extension to the same PG16 data.
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: helmme
+      POSTGRES_PASSWORD: helmme
+      POSTGRES_DB: helmme
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./services/api
+    environment:
+      DATABASE_URL: postgres://helmme:helmme@postgres:5432/helmme?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      PORT: "8080"
+      UPLOAD_DIR: /data/uploads
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TYPESAFE_AI_API_KEY: ${TYPESAFE_AI_API_KEY:-}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      SYNTH_MODEL: ${SYNTH_MODEL:-openai/gpt-oss-20b}
+      EMBED_KEY: ${EMBED_KEY:-}
+      EMBED_BASE_URL: ${EMBED_BASE_URL:-}
+      EMBED_MODEL: ${EMBED_MODEL:-text-embedding-3-small}
+      WEB_ORIGINS: ${WEB_ORIGINS:-}
+    ports:
+      - "8081:8080"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  pgdata:
+  uploads:

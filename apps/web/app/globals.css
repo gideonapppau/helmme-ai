@@ -1,0 +1,148 @@
+@import "tailwindcss" source("../");
+
+/* helmme — "the quiet archive".
+   Warm paper, hairline borders, soft two-layer shadows. Time is the spine,
+   ember orange is the single voice of attention, mono type is the stamp.
+   Paper: Deep #1C1917 · Light #FAF8F4 · Muted #8A8378 · Ember #FC4C01. */
+
+@theme {
+  /* paper neutrals */
+  --color-deep: #1c1917;
+  --color-light: #faf8f4;
+  --color-muted: #8a8378;
+  --color-panel: #ffffff;
+  --color-hover: #f3efe8;
+  --color-line: rgba(28, 25, 23, 0.09);
+  --color-line-strong: rgba(28, 25, 23, 0.17);
+  --color-ring: rgba(28, 25, 23, 0.05);
+
+  /* the ember — one confident orange, pressed darker, warm washes for chips */
+  --color-accent: #fc4c01;
+  --color-accent-deep: #e64500;
+  --color-accent-soft: #fff1e8;
+  --color-accent-faint: #fff8f2;
+  --color-violet: #ff8a3d;
+
+  /* semantic tints (functional, kept) */
+  --color-good: #15803d;
+  --color-good-soft: #f0fdf4;
+  --color-warn: #b45309;
+  --color-warn-soft: #fffbeb;
+  --color-bad: #dc2626;
+  --color-bad-soft: #fef2f2;
+
+  --font-sans: var(--font-ui), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: var(--font-mark), var(--font-ui), system-ui, sans-serif;
+  --font-mono: var(--font-geist), ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* elevation — paper slips on a desk */
+  --shadow-card: 0 1px 2px rgba(28, 25, 23, 0.04), 0 2px 10px -2px rgba(28, 25, 23, 0.07);
+  --shadow-lift: 0 2px 4px rgba(28, 25, 23, 0.05), 0 16px 40px -12px rgba(28, 25, 23, 0.18);
+
+  /* motion */
+  --animate-rise: rise 0.45s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-breathe: breathe 3.4s ease-in-out infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.055);
+      opacity: 0.92;
+    }
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --grad-brand: linear-gradient(120deg, #fc4c01 0%, #ff7a29 55%, #ff9e57 100%);
+  }
+
+  /* paper grain — barely there, felt more than seen */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    opacity: 0.032;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: #ffffff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Search excerpts: ts_headline marks matches with <b>. */
+  .excerpt b {
+    color: var(--color-accent-deep);
+    font-weight: 600;
+  }
+}
+
+/* gradient moments */
+@utility bg-grad {
+  background-image: var(--grad-brand);
+}
+@utility text-grad {
+  background-image: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+/* frosted glass — reserved for the docked loom bar and rail only */
+@utility glass {
+  background: color-mix(in srgb, var(--color-light) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(1.35);
+  -webkit-backdrop-filter: blur(14px) saturate(1.35);
+}
+/* sticky time stamps need the paper behind them to blur, not hide */
+@utility paper-blur {
+  background: color-mix(in srgb, var(--color-light) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+/* loading rows */
+@utility skeleton {
+  background: linear-gradient(90deg, #f3efe8 25%, #eae5dc 45%, #f3efe8 65%);
+  background-size: 200% 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --deep: #0f1115;
+        --light: #fafaf8;
+        --muted: #6b7280;
+        --line: rgba(15, 17, 21, 0.08);
+        --line-strong: rgba(15, 17, 21, 0.16);
+        --hover: #f3f4f6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 300px;
+        margin: 0;
+        padding: 14px;
+        background: var(--light);
+        color: var(--deep);
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .brand { display: flex; align-items: center; gap: 7px; margin: 0 0 10px 2px; color: var(--deep); }
+      .brand span { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+      .card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin: 0 0 10px;
+      }
+      .title { font-weight: 600; font-size: 13px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .domain { color: var(--muted); margin: 2px 0 0; font-size: 12px; }
+      .sel {
+        margin: 8px 0 0;
+        padding-top: 8px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .sel::before { content: "“"; }
+      .sel::after { content: "”"; }
+      button {
+        width: 100%;
+        padding: 9px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #fff;
+        background: var(--deep);
+        border: 1px solid var(--deep);
+        border-radius: 7px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: #23262d; }
+      button:active:not(:disabled) { transform: scale(0.99); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button:focus-visible { outline: 2px solid var(--deep); outline-offset: 2px; }
+      .msg { min-height: 17px; margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
+      .msg.ok { color: var(--deep); }
+      .msg.err { color: #b91c1c; }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <div class="brand" aria-hidden="true">
+      <svg width="22" height="15" viewBox="0 0 64 44">
+        <circle cx="41" cy="22" r="12.5" fill="none" stroke="currentColor" stroke-width="5" />
+        <path d="M29.44 32.71A12.5 12.5 0 1 0 33.93 28.06" fill="none" stroke="currentColor" stroke-width="5" />
+      </svg>
+      <span>helmme</span>
+    </div>
+    <div class="card">
+      <p class="title" id="title">…</p>
+      <p class="domain" id="domain">&nbsp;</p>
+      <p class="sel" id="sel" hidden></p>
+    </div>
+    <button id="save">Save</button>
+    <p class="msg" id="msg" aria-live="polite"></p>
+    <script src="lib.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
