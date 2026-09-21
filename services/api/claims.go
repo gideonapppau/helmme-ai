@@ -33,7 +33,7 @@ type claimVerdict struct {
 
 // mapClaimSources resolves each claim's [n] markers to evidence ids.
 // Out-of-range markers are dropped; marker-less claims keep an empty
-// list. The author cited them — Jev judged them; both stay visible.
+// list. The author cited them, Jev judged them; both stay visible.
 func mapClaimSources(claims []claimVerdict, ids []string) []claimVerdict {
 	for i := range claims {
 		srcs := []string{}
@@ -48,7 +48,7 @@ func mapClaimSources(claims []claimVerdict, ids []string) []claimVerdict {
 }
 
 // splitClaims cuts prose into checkable sentences. Headings, bare
-// citations ("[1][2]"), and fragments are dropped — they carry no claim.
+// citations ("[1][2]"), and fragments are dropped, they carry no claim.
 func splitClaims(prose string) []string {
 	var out []string
 	for _, line := range strings.Split(prose, "\n") {
@@ -88,7 +88,7 @@ func splitClaims(prose string) []string {
 }
 
 // verdictFor turns odds into a label. Same bars as the TS policy.
-// "disputed" means real support and real pushback coexist — surfacing
+// "disputed" means real support and real pushback coexist, surfacing
 // the conflict beats picking a side.
 func verdictFor(supported, contradicted float64) string {
 	if contradicted > 0.6 {

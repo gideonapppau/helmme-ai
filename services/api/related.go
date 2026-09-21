@@ -1,5 +1,5 @@
 // Related items (§83): Similar, Same site, Earlier, Later, Saved together.
-// Phase-1 version uses existing data only — no entities graph yet. Every
+// Phase-1 version uses existing data only, no entities graph yet. Every
 // connection carries its reason, so the UI can answer "why this?" (§156).
 package main
 
@@ -13,6 +13,7 @@ import (
 
 // Reasons are stable codes; the UI renders them in plain words.
 const (
+	reasonReferenced    = "referenced"
 	reasonSameSite      = "same-site"
 	reasonSimilarWords  = "similar-words"
 	reasonSavedTogether = "saved-together"
@@ -31,7 +32,7 @@ type relatedHit struct {
 }
 
 // mergeRelated dedupes by id, combines reasons, keeps signal priority
-// order, and caps the list. Pure — unit tested.
+// order, and caps the list. Pure, unit tested.
 func mergeRelated(groups [][]relatedHit, cap int) []relatedHit {
 	seen := map[string]int{}
 	var out []relatedHit
@@ -68,16 +69,18 @@ func registerRelatedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		}
 
 		var base struct {
+			sourceType string
+			rawRef     string
 			domain     string
 			text       string
 			capturedAt time.Time
 		}
 		_ = pool.QueryRow(ctx, `
-		  SELECT COALESCE(i.domain,''), COALESCE(c.extracted_text,''),
-		         i.captured_at
+		  SELECT i.source_type, i.raw_ref, COALESCE(i.domain,''),
+		         COALESCE(c.extracted_text,''), i.captured_at
 		  FROM items i LEFT JOIN item_contents c ON c.item_id = i.id
 		  WHERE i.id = $1`,
-			id).Scan(&base.domain, &base.text, &base.capturedAt)
+			id).Scan(&base.sourceType, &base.rawRef, &base.domain, &base.text, &base.capturedAt)
 
 		scan := func(rows interface {
 			Next() bool
@@ -107,6 +110,22 @@ func registerRelatedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			return out
 		}
 
+		// Referenced: saves that mention this item's address (§48).
+		// Plain words: if your note pastes a link to an article you saved,
+		// the two meet here. Only addressable items (links, posts) qualify.
+		var referenced []relatedHit
+		addrAny, _ := canonicalFields(base.sourceType, base.rawRef)
+		if addr, ok := addrAny.(string); ok && addr != "" {
+			refRows, err := pool.Query(ctx, `
+			  SELECT i.id, i.title, i.source_type, i.domain, i.captured_at
+			  FROM items i JOIN item_contents c ON c.item_id=i.id
+			  WHERE i.user_id=$1 AND i.id<>$2 AND i.status='active' AND i.sync_state<>'deleted'
+			    AND POSITION($3 IN COALESCE(c.extracted_text,'')) > 0 LIMIT 5`, user, id, addr)
+			if err == nil {
+				referenced = scan(refRows, reasonReferenced)
+			}
+		}
+
 		// Same import run = saved together.
 		togetherRows, err := pool.Query(ctx, `
 		  SELECT i.id, i.title, i.source_type, i.domain, i.captured_at
@@ -118,12 +137,13 @@ func registerRelatedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			together = scan(togetherRows, reasonSavedTogether)
 		}
 
-		// Same topic.
+		// Same topic (visible ones only, hidden guesses stay quiet).
 		var sameTopic []relatedHit
 		topicRows, err := pool.Query(ctx, `
 		  SELECT DISTINCT i.id, i.title, i.source_type, i.domain, i.captured_at
 		  FROM item_topics mine
 		  JOIN item_topics theirs ON theirs.topic_id = mine.topic_id
+		  JOIN topics t ON t.id = theirs.topic_id AND NOT t.hidden
 		  JOIN items i ON i.id = theirs.item_id
 		  WHERE mine.item_id=$1 AND i.id<>$1 AND i.user_id=$2 AND i.status='active' LIMIT 5`, id, user)
 		if err == nil {
@@ -173,7 +193,7 @@ func registerRelatedRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			neighbors = append(neighbors, scan(laterRows, reasonLater)...)
 		}
 
-		related := mergeRelated([][]relatedHit{together, sameTopic, sameSite, similar, neighbors}, 6)
+		related := mergeRelated([][]relatedHit{referenced, together, sameTopic, sameSite, similar, neighbors}, 6)
 		if related == nil {
 			related = []relatedHit{}
 		}

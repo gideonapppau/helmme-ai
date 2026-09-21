@@ -7,6 +7,18 @@
     "default_popup": "popup.html",
     "default_title": "Save to helmme"
   },
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["http://localhost:8081/*"]
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
+  "host_permissions": ["http://localhost:8081/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Save this page to helmme"
+    }
+  }
 }

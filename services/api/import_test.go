@@ -1,5 +1,5 @@
 // Import tests: folder nesting, tracking-param dupes, bad urls, dates.
-// Parser is pure — no DB needed.
+// Parser is pure, no DB needed.
 package main
 
 import (

@@ -1,6 +1,6 @@
 // Embeddings (§72): meaning-vectors for semantic retrieval.
 // OpenAI-compatible API (base URL + key + model from env). Missing key
-// means vectors are skipped, never an error — keyword search stands alone.
+// means vectors are skipped, never an error, keyword search stands alone.
 package main
 
 import (
@@ -42,7 +42,7 @@ func embedFromEnv() (embedClient, bool) {
 }
 
 // embedTexts calls the API once for a batch. Returns one vector per input,
-// in order. Any failure is an error — the caller decides it is non-fatal.
+// in order. Any failure is an error, the caller decides it is non-fatal.
 func (e embedClient) embedTexts(inputs []string) ([][]float32, error) {
 	body, _ := json.Marshal(map[string]any{"model": e.model, "input": inputs})
 	req, err := http.NewRequest("POST", strings.TrimSuffix(e.baseURL, "/")+"/embeddings", bytes.NewReader(body))
@@ -90,7 +90,7 @@ func (e embedClient) embedTexts(inputs []string) ([][]float32, error) {
 }
 
 // queryCache avoids re-embedding identical searches. Small, in-memory,
-// prototype-grade — a real cache lands with Redis-backed query work.
+// prototype-grade, a real cache lands with Redis-backed query work.
 var queryCache sync.Map // string -> []float32
 
 func embedQuery(text string) ([]float32, error) {

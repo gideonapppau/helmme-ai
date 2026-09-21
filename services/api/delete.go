@@ -1,8 +1,9 @@
 // Delete one item and everything derived from it (§79, §164.16).
 // DELETE /v1/items/:id -> 204. Unknown ids and other tenants' items
 // both answer 404 with no reason why.
-// File bytes are shared by content hash: the stored copy is removed only
-// when no remaining item points at it.
+// A tombstone is written first (023): the row dies, the record of the
+// death lives on for sync. File bytes are shared by content hash: the
+// stored copy is removed only when no remaining item points at it.
 package main
 
 import (
@@ -39,6 +40,16 @@ func registerDeleteRoutes(mux *http.ServeMux, pool *pgxpool.Pool, uploadDir stri
 		_, _ = pool.Exec(ctx, `
 		  UPDATE items SET status='active', merged_into=NULL
 		  WHERE merged_into=$1 AND user_id=$2`, id, user)
+
+		// The tombstone goes down before the row: if the delete fails,
+		// no ghost record claims something died that didn't.
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO delete_log (user_id, item_id, content_hash) VALUES ($1,$2,$3)`,
+			user, id, hash); err != nil {
+			log.Printf("tombstone failed err=%T", err)
+			http.Error(w, "internal error", 500)
+			return
+		}
 
 		if _, err := pool.Exec(ctx, `DELETE FROM items WHERE id=$1`, id); err != nil {
 			log.Printf("delete failed err=%T", err)

@@ -1,5 +1,5 @@
 // Graph extraction tests: folders to topics, domains to entities,
-// title guesses. Pure — idempotency is verified live on the backfill.
+// title guesses. Pure, idempotency is verified live on the backfill.
 package main
 
 import (

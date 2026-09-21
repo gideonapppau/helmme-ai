@@ -1,5 +1,5 @@
 // Search-understanding tests: filler stripping + relaxed OR fallback.
-// Pure functions — the "anything about marketmate" regression lives here.
+// Pure functions, the "anything about marketmate" regression lives here.
 package main
 
 import (
@@ -10,7 +10,7 @@ func TestOrQuery(t *testing.T) {
 	if got := orQuery("marketmate"); got != "marketmate:*" {
 		t.Errorf("single word: %q", got)
 	}
-	// Every word rides along, even filler — Postgres drops stopwords,
+	// Every word rides along, even filler, Postgres drops stopwords,
 	// the ranker buries the rest. No lists.
 	if got := orQuery("anything about marketmate"); got != "anything:* | about:* | marketmate:*" {
 		t.Errorf("words dropped: %q", got)

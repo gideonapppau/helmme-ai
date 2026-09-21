@@ -2,31 +2,35 @@
 import { useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Home01Icon,
   Search01Icon,
-  SourceCodeIcon,
   Bookmark01Icon,
   Settings02Icon,
-  Link01Icon,
+  Cancel01Icon,
   File01Icon,
   Layers01Icon,
   Delete02Icon,
   SparklesIcon,
   ArrowUpRight01Icon,
+  LinkSquare02Icon,
   PlusSignIcon,
   ChevronDownIcon,
   AlertCircleIcon,
   ImportIcon,
   MergeIcon,
   HistoryIcon,
+  ClipboardCheckIcon,
+  Sun03Icon,
+  Moon02Icon,
 } from "@hugeicons/core-free-icons";
 import { fastPath } from "@helmme/context-engine";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { CLAIM_WORDS, DUP_REASONS, REASONS, displayTitle, timeBucket } from "../lib/labels";
-import { CLAIM_CHIP, Mark, Tile, styleOf } from "../lib/ui";
+import { CLAIM_CHIP, Mark, Tile, styleOf, XLogoGlyph } from "../lib/ui";
 import { AnimatedCounter } from "../components/ui/animated-counter";
 import { DeleteButton } from "../components/ui/delete-button";
 import { GooeyNav } from "../components/ui/gooey-nav";
+import { Folder } from "../components/ui/folder-component";
 import MatrixOrb from "../components/ui/matrix-orb";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
@@ -55,12 +59,13 @@ const FILTERS: Record<string, { label: string; types: string[] }> = {
   code: { label: "Code", types: ["file"] },
   media: { label: "Media", types: ["image"] },
   saved: { label: "Saved", types: ["bookmark"] },
+  x: { label: "X", types: ["x"] },
 };
 
 function relTime(iso: string, now: number | null): string {
   if (!now) return "";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "-";
   const s = Math.max((now - d.getTime()) / 1000, 0);
   if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
@@ -95,11 +100,72 @@ export default function Home() {
   const [dupeLoading, setDupeLoading] = useState(false);
   const [views, setViews] = useState<{ id: string; name: string; query_text: string; count: number; new: number }[]>([]);
   const [resurf, setResurf] = useState<{ id: string; title: string; reason: string; seen: boolean }[]>([]);
-  const [hideSeen, setHideSeen] = useState(false);
+  const [hideSeen, setHideSeen] = useState(true);
+  // Constitution §3 nav: Search · Recent · Capture · Archive · Settings.
+  const [showRecent, setShowRecent] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [recentItems, setRecentItems] = useState<{ id: string; title: string; source_type: string; domain: string; captured_at: string; excerpt: string }[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [archiveView, setArchiveView] = useState("all");
+  const [archiveData, setArchiveData] = useState<{ items?: { id: string; title: string; source_type: string; domain: string }[]; groups?: { name: string; count: number; id?: string; query_text?: string }[] }>({});
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  // Constitution §11-§14 X connection + §38 resurfacing mode.
+  const [xHandle, setXHandle] = useState("");
+  const [xMsg, setXMsg] = useState("");
+  const [resurfaceMode, setResurfaceMode] = useState<"quiet" | "balanced" | "proactive">("quiet");
+  // Constitution §38: the mood lives on the server so every device agrees.
+  // Plain words: read the saved mood when Settings opens, store it on change.
+  useEffect(() => {
+    if (!showSettings) return;
+    fetch(`${API}/v1/settings`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const m = j?.resurface_mode;
+        if (m === "quiet" || m === "balanced" || m === "proactive") setResurfaceMode(m);
+      })
+      .catch(() => {});
+  }, [showSettings]);
+
+  async function saveResurfaceMode(m: "quiet" | "balanced" | "proactive") {
+    setResurfaceMode(m);
+    try {
+      await fetch(`${API}/v1/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resurface_mode: m }),
+      });
+    } catch {
+      /* local state already shows it; server syncs next open */
+    }
+  }
+  // Theme: null until we know (SSR-safe), then mirrors the html.dark class.
+  const [night, setNight] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setNight(document.documentElement.classList.contains("dark"));
+  }, []);
+
+  // Focus the omnibar on load, desktop only. On phones an autofocus
+  // steals the first tap and pops the keyboard unprompted.
+  useEffect(() => {
+    if (window.matchMedia("(min-width: 768px)").matches) {
+      inputRef.current?.focus();
+    }
+  }, []);
+
+  function toggleTheme() {
+    const root = document.documentElement;
+    const next = !root.classList.contains("dark");
+    root.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("helmme-theme", next ? "dark" : "light");
+    } catch {}
+    setNight(next);
+  }
 
   async function loadResurf(hide: boolean) {
     try {
-      const r = await fetch(`${API}/v1/resurface${hide ? "?hide_seen=1" : ""}`);
+      const r = await fetch(`${API}/v1/resurface${hide ? "" : "?show_seen=1"}`);
       const j = await r.json();
       setResurf(j.items ?? []);
     } catch {
@@ -149,7 +215,7 @@ export default function Home() {
   function renderProse(para: string, key: number) {
     const parts = para.split(/(\[\d+\])/g);
     return (
-      <p key={key} className="m-0 mb-2.5 text-[13px] leading-relaxed text-deep last:mb-0">
+      <p key={key} className="m-0 mb-2.5 font-serif text-[14.5px] leading-[1.75] text-deep last:mb-0">
         {parts.map((part, i) => {
           const m = /^\[(\d+)\]$/.exec(part);
           const n = m ? parseInt(m[1], 10) : 0;
@@ -195,9 +261,57 @@ export default function Home() {
     };
   }, []);
 
+  // Constitution §57: Cmd/Ctrl+K search · Cmd/Ctrl+Shift+S capture ·
+  // arrows navigate · Enter open · Cmd/Ctrl+Enter synthesize · Esc close.
   // "/" focuses search; cmd/ctrl+K focuses and selects, from anywhere.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        setShowCapture(true);
+        setShowSettings(false);
+        setShowCleanup(false);
+        setShowReview(false);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        summarize();
+        return;
+      }
+      if (e.key === "Escape") {
+        setShowCapture(false);
+        setShowSettings(false);
+        setShowCleanup(false);
+        setShowReview(false);
+        setShowRecent(false);
+        setShowArchive(false);
+        setRelOpen(null);
+        return;
+      }
+      // Plain words: up/down walk through the result links. Typing stays typing.
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const el = e.target as HTMLElement | null;
+        const tag = el?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        const links = Array.from(
+          document.querySelectorAll('a[href^="/item/"]'),
+        ) as HTMLElement[];
+        if (links.length === 0) return;
+        e.preventDefault();
+        const i = links.indexOf(document.activeElement as HTMLElement);
+        let next: number;
+        if (i === -1) {
+          next = e.key === "ArrowDown" ? 0 : links.length - 1;
+        } else {
+          next =
+            e.key === "ArrowDown"
+              ? (i + 1) % links.length
+              : (i - 1 + links.length) % links.length;
+        }
+        links[next]?.focus();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         inputRef.current?.focus();
@@ -263,6 +377,8 @@ export default function Home() {
       setShowSettings(false);
       setShowCleanup(false);
       setShowReview(false);
+      setShowRecent(false);
+      setShowArchive(false);
     } catch (e) {
       setHealth("down");
       setPhase("error");
@@ -274,7 +390,68 @@ export default function Home() {
     setShowSettings(false);
     setShowCleanup(false);
     setShowReview(false);
+    setShowRecent(false);
+    setShowArchive(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
     inputRef.current?.focus();
+  }
+
+  // Constitution §6 Recent captures, chronological, no ranking.
+  async function openRecent() {
+    setShowSettings(false);
+    setShowCleanup(false);
+    setShowReview(false);
+    setShowArchive(false);
+    setFilter(null);
+    setShowRecent(true);
+    setRecentLoading(true);
+    try {
+      const r = await fetch(`${API}/v1/recent?limit=20`);
+      const j = await r.json();
+      setRecentItems(j.items ?? []);
+    } catch {
+      setRecentItems([]);
+    }
+    setRecentLoading(false);
+  }
+
+  // Constitution §19 Archive, views over one graph, never containers.
+  async function openArchive(view: string = archiveView) {
+    setShowSettings(false);
+    setShowCleanup(false);
+    setShowReview(false);
+    setShowRecent(false);
+    setFilter(null);
+    setShowArchive(true);
+    setArchiveView(view);
+    setArchiveLoading(true);
+    try {
+      const r = await fetch(`${API}/v1/archive?view=${encodeURIComponent(view)}`);
+      const j = await r.json();
+      setArchiveData(j);
+    } catch {
+      setArchiveData({});
+    }
+    setArchiveLoading(false);
+  }
+
+  // Constitution §11 X connect, handle only, never a password. OAuth lands here.
+  async function connectX() {
+    const h = xHandle.trim();
+    if (!h) return;
+    setXMsg("Connecting...");
+    try {
+      const r = await fetch(`${API}/v1/sources/x/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handle: h }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setXMsg("Connected. Your bookmarks can now be imported as normal memory.");
+      setXHandle("");
+    } catch {
+      setXMsg("Could not connect. Try again.");
+    }
   }
 
   async function uploadFile(f: File) {
@@ -286,7 +463,7 @@ export default function Home() {
       if (!r.ok) throw new Error(await r.text());
       setUploadMsg("Saved. Search for it above.");
     } catch {
-      setUploadMsg("Could not save that file. PDFs and images only, under 25MB.");
+      setUploadMsg("Could not save that file. PDF, images, text, and Word files only, under 25MB.");
     }
   }
 
@@ -341,6 +518,8 @@ export default function Home() {
     setShowSettings(false);
     setShowCleanup(false);
     setShowReview(false);
+    setShowRecent(false);
+    setShowArchive(false);
     if (i === 0) {
       setFilter(null);
       return;
@@ -352,6 +531,8 @@ export default function Home() {
   async function openCleanup() {
     setShowSettings(false);
     setShowReview(false);
+    setShowRecent(false);
+    setShowArchive(false);
     setFilter(null);
     setShowCleanup(true);
     setLastMerge(null);
@@ -369,6 +550,8 @@ export default function Home() {
   async function openReview() {
     setShowSettings(false);
     setShowCleanup(false);
+    setShowRecent(false);
+    setShowArchive(false);
     setFilter(null);
     setShowReview(true);
     setReviewLoading(true);
@@ -514,6 +697,8 @@ export default function Home() {
     setShowCleanup(false);
     setShowSettings(false);
     setShowReview(false);
+    setShowRecent(false);
+    setShowArchive(false);
     setFilter(null);
     await search(v.query_text);
     try {
@@ -548,13 +733,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    loadResurf(false);
+    loadResurf(true);
   }, []);
 
   const [relOpen, setRelOpen] = useState<string | null>(null);
   const [relaxed, setRelaxed] = useState(false);
   const [relBusy, setRelBusy] = useState(false);
-  const [relMap, setRelMap] = useState<Record<string, { title: string; domain: string; reasons: string[] }[]>>({});
+  const [relMap, setRelMap] = useState<Record<string, { title: string; domain: string; source_type: string; reasons: string[] }[]>>({});
   const [scopeEcho, setScopeEcho] = useState<{ types: string[] | null; topic: string; view: string } | null>(null);
 
 const SCOPE_NAMES: Record<string, string> = {
@@ -565,6 +750,7 @@ const SCOPE_NAMES: Record<string, string> = {
   file: "code",
   image: "media",
   bookmark: "saved",
+  x: "x",
 };
 
 function scopeChips(scope: { types: string[] | null; topic: string; view: string }): string[] {
@@ -595,8 +781,13 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
   }
 
   // The quiet archive: hero mode when nothing is happening yet,
-  // and the results sorted the way memory actually works — by time.
-  const hero = phase === "idle" && !trimmed && !filter && !showCapture && !showCleanup && !showSettings && !showReview;
+  // and the results sorted the way memory actually works, by time.
+  const hero = phase === "idle" && !trimmed && !filter && !showCapture && !showCleanup && !showSettings && !showReview && !showRecent && !showArchive;
+
+  // Motion pass: springy panel changes, silenced for reduced motion.
+  const reduced = useReducedMotion() ?? false;
+  const panelT = reduced ? { duration: 0 } : { type: "spring" as const, stiffness: 420, damping: 34 };
+  const panelExit = reduced ? { opacity: 0 } : { opacity: 0, y: -8, transition: { duration: 0.14, ease: "easeOut" as const } };
   const groups = (["today", "yesterday", "week", "month", "earlier"] as const)
     .map((key) => {
       const items = visible.filter((h) => timeBucket(h.captured_at, now).key === key);
@@ -606,8 +797,50 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
     .filter((g) => g.items.length > 0);
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="glass sticky top-0 z-10 flex h-screen w-14 shrink-0 flex-col border-r border-line px-2 pb-4 pt-4 md:w-[240px] md:px-3">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* mobile top bar, brand, health, theme, settings */}
+      <header className="glass sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between border-b border-line px-3 pt-[env(safe-area-inset-top)] md:hidden">
+        <div className="flex items-center gap-2 text-deep">
+          <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-accent-soft text-accent ring-1 ring-inset ring-accent/15">
+            <Mark size={18} />
+          </span>
+          <span className="font-brand text-[15.5px] font-semibold tracking-[-0.01em]">helmme</span>
+        </div>
+        <div className="flex items-center gap-0.5">
+          <i
+            aria-hidden="true"
+            title={`api ${health}`}
+            className={`mr-1.5 h-[7px] w-[7px] rounded-full ${
+              health === "up" ? "bg-good" : health === "down" ? "bg-bad" : "bg-line-strong"
+            }`}
+          />
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="grid h-10 w-10 place-items-center rounded-xl text-muted transition-colors hover:bg-hover hover:text-deep active:scale-95"
+            aria-label="Switch theme"
+          >
+            <HugeiconsIcon icon={night ? Sun03Icon : Moon02Icon} size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowSettings((s) => !s);
+              setShowCleanup(false);
+              setShowReview(false);
+            }}
+            className={`grid h-10 w-10 place-items-center rounded-xl transition-colors active:scale-95 ${
+              showSettings ? "bg-accent-soft text-accent-deep" : "text-muted hover:bg-hover hover:text-deep"
+            }`}
+            aria-label="Settings"
+          >
+            <HugeiconsIcon icon={Settings02Icon} size={18} />
+          </button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-row">
+      <aside className="glass sticky top-0 z-10 hidden h-screen shrink-0 flex-col border-r border-line px-2 pb-4 pt-4 md:flex md:w-[240px] md:px-3">
         <div className="flex items-center gap-2.5 px-1 pt-0.5 text-deep">
           <span className="animate-breathe grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-accent-soft text-accent ring-1 ring-inset ring-accent/15">
             <Mark size={21} />
@@ -618,26 +851,31 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
         </div>
 
         <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pb-1" aria-label="Sections">
-          <button
-            type="button"
-            className={`${railCls}${!filter && !showSettings && !showReview ? railActive : ""}`}
-            onClick={() => {
-              setFilter(null);
-              setShowSettings(false);
-              setShowReview(false);
-            }}
-          >
-            <HugeiconsIcon icon={Home01Icon} size={17} className="shrink-0" />
-            <span className="hidden md:inline">Home</span>
-          </button>
+          {/* Constitution §3: Search · Recent · Capture · Archive · Settings. */}
           <button type="button" className={railCls} onClick={focusSearch}>
             <HugeiconsIcon icon={Search01Icon} size={17} className="shrink-0" />
             <span className="hidden md:inline">Search</span>
           </button>
+          <button
+            type="button"
+            className={`${railCls}${showRecent ? railActive : ""}`}
+            onClick={openRecent}
+          >
+            <HugeiconsIcon icon={HistoryIcon} size={17} className="shrink-0" />
+            <span className="hidden md:inline">Recent</span>
+          </button>
+          <button
+            type="button"
+            className={`${railCls}${showArchive ? railActive : ""}`}
+            onClick={() => openArchive("all")}
+          >
+            <HugeiconsIcon icon={Bookmark01Icon} size={17} className="shrink-0" />
+            <span className="hidden md:inline">Archive</span>
+          </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp"
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.md,.markdown,.txt,.docx"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -656,7 +894,7 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
               e.target.value = "";
             }}
           />
-          <p className="mb-0 mt-4 hidden px-2.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted/70 md:block">
+          <p className="mb-0 mt-4 hidden px-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/70 md:block">
             Capture
           </p>
           <button type="button" className={railCls} onClick={() => fileRef.current?.click()}>
@@ -675,10 +913,26 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
               setShowSettings(false);
               setShowCleanup(false);
               setShowReview(false);
+              setShowRecent(false);
+              setShowArchive(false);
             }}
           >
             <HugeiconsIcon icon={PlusSignIcon} size={17} className="shrink-0" />
             <span className="hidden md:inline">Quick save</span>
+          </button>
+          <button
+            type="button"
+            className={railCls}
+            onClick={() => {
+              setShowSettings(true);
+              setShowCleanup(false);
+              setShowReview(false);
+              setShowRecent(false);
+              setShowArchive(false);
+            }}
+          >
+            <HugeiconsIcon icon={XLogoGlyph} size={15} className="shrink-0" />
+            <span className="hidden md:inline">Connect X</span>
           </button>
           <button
             type="button"
@@ -693,11 +947,11 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
             className={`${railCls}${showReview ? railActive : ""}`}
             onClick={openReview}
           >
-            <HugeiconsIcon icon={HistoryIcon} size={17} className="shrink-0" />
+            <HugeiconsIcon icon={ClipboardCheckIcon} size={17} className="shrink-0" />
             <span className="hidden md:inline">Review</span>
           </button>
           {views.length > 0 && (
-            <p className="mb-1 mt-4 hidden px-2.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted/70 md:block">
+            <p className="mb-1 mt-4 hidden px-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/70 md:block">
               Saved searches
             </p>
           )}
@@ -707,17 +961,17 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 <span className="hidden md:inline">{v.name}</span>
               </button>
               {v.new > 0 && (
-                <span className="hidden shrink-0 rounded-full bg-grad px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-white md:inline">
+                <span className="hidden shrink-0 rounded-full bg-accent-deep px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-white md:inline">
                   +{v.new}
                 </span>
               )}
               <button
                 type="button"
                 onClick={() => deleteView(v.id)}
-                className="hidden shrink-0 text-muted opacity-0 transition-opacity duration-150 hover:text-deep group-hover:opacity-100 md:inline"
+                className="grid place-items-center rounded-full text-muted opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-deep group-hover:opacity-100 md:inline-grid"
                 aria-label={`Remove ${v.name}`}
               >
-                ×
+                <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
               </button>
             </div>
           ))}
@@ -735,6 +989,15 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
           </span>
           <button
             type="button"
+            className={railCls}
+            onClick={toggleTheme}
+            aria-label={night ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            <HugeiconsIcon icon={night ? Sun03Icon : Moon02Icon} size={17} className="shrink-0" />
+            <span className="hidden md:inline">{night === null ? "Theme" : night ? "Day paper" : "Night"}</span>
+          </button>
+          <button
+            type="button"
             className={`${railCls}${showSettings ? railActive : ""}`}
             onClick={() => {
               setShowSettings((s) => !s);
@@ -748,13 +1011,13 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col items-center px-4 pb-16 md:px-9">
+      <main className="flex min-w-0 flex-1 flex-col items-center px-4 pb-[calc(76px+env(safe-area-inset-bottom))] md:px-9 md:pb-16">
         <form
           className={`${
             hero
               ? "mt-[clamp(56px,15vh,140px)] h-[60px] rounded-[18px] border-line bg-panel pl-4 pr-3 shadow-lift"
-              : "glass sticky top-2.5 z-20 mt-1 h-[46px] rounded-2xl border-line pl-3.5 pr-2.5 shadow-card"
-          } flex w-full max-w-[640px] items-center gap-3 border transition-all duration-300 focus-within:border-accent/45`}
+              : "glass z-20 mt-1 h-[46px] rounded-2xl border-line pl-3.5 pr-2.5 shadow-card md:sticky md:top-2.5"
+          } flex w-full max-w-[640px] items-center gap-3 border transition-all duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)] focus-within:border-accent/45`}
           onSubmit={(e) => {
             e.preventDefault();
             search();
@@ -771,12 +1034,11 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
             aria-label="Search your memory"
             autoComplete="off"
             spellCheck={false}
-            autoFocus
             className={`m-0 min-w-0 flex-1 border-0 bg-transparent p-0 font-medium text-deep placeholder:font-normal placeholder:text-muted/55 focus:outline-none ${
-              hero ? "text-[17px]" : "text-[14.5px]"
+              hero ? "text-[17px]" : "text-[16px] md:text-[14.5px]"
             }`}
           />
-          <kbd className={kbdCls}>⌘K</kbd>
+          <kbd className={`${kbdCls} hidden sm:block`}>⌘K</kbd>
         </form>
 
         {scopeEcho && scopeChips(scopeEcho).length > 0 && (
@@ -787,26 +1049,56 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-deep"
               >
                 {chip}
-                <button type="button" onClick={clearScope} className="text-muted hover:text-accent-deep" aria-label="Clear search scope">
-                  ×
+                <button type="button" onClick={clearScope} className="grid place-items-center text-muted transition-colors hover:text-accent-deep" aria-label="Clear search scope">
+                  <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
                 </button>
               </span>
             ))}
           </div>
         )}
 
-        <GooeyNav
-          className="mt-3"
-          size="sm"
-          activeColor="#FC4C01"
-          items={["All", ...Object.values(FILTERS).map((f) => f.label)]}
-          value={filter ? Object.keys(FILTERS).indexOf(filter) + 1 : 0}
-          onChange={pickFilterValue}
-        />
+        <div className="mt-3 w-full max-w-[640px] overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="sm:hidden">
+            <GooeyNav
+              size="xs"
+              activeColor="#CC3D00"
+              items={["All", ...Object.values(FILTERS).map((f) => f.label)]}
+              value={filter ? Object.keys(FILTERS).indexOf(filter) + 1 : 0}
+              onChange={pickFilterValue}
+            />
+          </div>
+          <div className="hidden sm:block">
+            <GooeyNav
+              size="sm"
+              activeColor="#CC3D00"
+              items={["All", ...Object.values(FILTERS).map((f) => f.label)]}
+              value={filter ? Object.keys(FILTERS).indexOf(filter) + 1 : 0}
+              onChange={pickFilterValue}
+            />
+          </div>
+        </div>
 
         {showCapture && (
+          <div className="mb-2 mt-3 flex w-full max-w-[640px] gap-2 px-2.5 md:hidden">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex-1 rounded-2xl border border-line bg-panel px-3 py-2 text-xs font-medium text-muted shadow-card transition-colors hover:text-deep active:scale-[0.97]"
+            >
+              Save a file
+            </button>
+            <button
+              type="button"
+              onClick={() => importRef.current?.click()}
+              className="flex-1 rounded-2xl border border-line bg-panel px-3 py-2 text-xs font-medium text-muted shadow-card transition-colors hover:text-deep active:scale-[0.97]"
+            >
+              Import bookmarks
+            </button>
+          </div>
+        )}
+        {showCapture && (
           <form
-            className="animate-rise mt-3 flex w-full max-w-[640px] gap-2 px-2.5"
+            className="animate-rise flex w-full max-w-[640px] gap-2 px-2.5"
             onSubmit={(e) => {
               e.preventDefault();
               quickSave();
@@ -820,12 +1112,13 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
               autoComplete="off"
               spellCheck={false}
               maxLength={7000}
-              autoFocus
-              className="m-0 min-w-0 flex-1 rounded-2xl border border-line bg-panel px-3.5 py-2.5 text-[13px] text-deep shadow-card placeholder:text-muted/55 focus:border-accent/45 focus:outline-none"
+              inputMode="text"
+              enterKeyHint="done"
+              className="m-0 min-w-0 flex-1 rounded-2xl border border-line bg-panel px-3.5 py-2.5 text-[16px] text-deep shadow-card placeholder:text-[13px] placeholder:text-muted/55 focus:border-accent/45 focus:outline-none md:text-[13px]"
             />
             <button
               type="submit"
-              className="shrink-0 rounded-2xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-card transition-all duration-150 hover:bg-accent-deep active:scale-[0.97]"
+              className="shrink-0 rounded-2xl bg-accent-deep px-4 py-2 text-xs font-semibold text-white shadow-card transition-all duration-150 hover:bg-accent active:scale-[0.97]"
             >
               Save
             </button>
@@ -945,8 +1238,16 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
           <p className="mt-2.5 w-full max-w-[640px] px-2.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted">{uploadMsg}</p>
         )}
 
+        <AnimatePresence mode="wait" initial={false}>
         {showReview ? (
-          <section className="animate-rise mt-8 w-full max-w-[640px]">
+          <motion.section
+            key="review"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+          >
             <h2 className="px-1 pb-1 text-[22px] font-semibold tracking-[-0.02em] text-deep">This week</h2>
             <p className="mb-4 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/80">
               your archive, lately
@@ -1046,9 +1347,16 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 )}
               </>
             )}
-          </section>
+          </motion.section>
         ) : showCleanup ? (
-          <section className="animate-rise mt-8 w-full max-w-[640px]">
+          <motion.section
+            key="cleanup"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+          >
             <h2 className="px-1 pb-1 text-[22px] font-semibold tracking-[-0.02em] text-deep">Cleanup</h2>
             <p className="mb-4 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/80">
               same thing, saved twice
@@ -1119,22 +1427,94 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 </div>
               ))
             )}
-          </section>
+          </motion.section>
         ) : showSettings ? (
-          <section className="animate-rise mt-8 w-full max-w-[640px]">
+          <motion.section
+            key="settings"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+          >
             <h2 className="px-1 pb-1 text-[22px] font-semibold tracking-[-0.02em] text-deep">Settings</h2>
             <p className="mb-4 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/80">
-              how this works
+              account · connections · privacy · memory
             </p>
+            {/* Constitution §11-§14: X is a first-class source. Handle only, never password. */}
+            <div className="mb-3 rounded-2xl border border-line bg-panel px-4 py-3.5 shadow-card">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px]"
+                  style={{ background: "var(--tile-x-bg)", color: "var(--tile-x-ink)" }}
+                  aria-hidden="true"
+                >
+                  <HugeiconsIcon icon={XLogoGlyph} size={13} />
+                </span>
+                <p className={`m-0 ${stampCls}`}>Connections · X</p>
+              </div>
+              <p className="m-0 mt-1.5 text-[12.5px] leading-relaxed text-muted">
+                Bring your X bookmarks into your memory. They become normal searchable
+                memory, not a separate silo.
+              </p>
+              <form
+                className="mt-2.5 flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  connectX();
+                }}
+              >
+                <input
+                  value={xHandle}
+                  onChange={(e) => setXHandle(e.target.value)}
+                  placeholder="@handle (optional)"
+                  aria-label="X handle"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={120}
+                  className="m-0 min-w-0 flex-1 rounded-xl border border-line bg-panel px-3 py-2 text-[13px] text-deep placeholder:text-muted/55 focus:border-accent/45 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent-deep px-3.5 py-2 text-xs font-semibold text-white transition-all duration-150 hover:bg-accent active:scale-[0.97]"
+                >
+                  <HugeiconsIcon icon={XLogoGlyph} size={12} aria-hidden="true" />
+                  Connect X
+                </button>
+              </form>
+              {xMsg && <p className="m-0 mt-2 text-[11.5px] text-muted">{xMsg}</p>}
+            </div>
+            {/* Constitution §38: Quiet / Balanced / Proactive are behavior controls. */}
+            <div className="mb-3 rounded-2xl border border-line bg-panel px-4 py-3.5 shadow-card">
+              <p className={`m-0 ${stampCls}`}>Resurfacing</p>
+              <p className="m-0 mt-1.5 text-[12.5px] leading-relaxed text-muted">
+                Quiet by default. The archive returns only when it has a reason.
+              </p>
+              <div className="mt-2.5 flex gap-1.5">
+                {(["quiet", "balanced", "proactive"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => saveResurfaceMode(m)}
+                    aria-pressed={resurfaceMode === m}
+                    className={`rounded-full px-3 py-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] transition-all duration-150 active:scale-[0.97] ${
+                      resurfaceMode === m ? "bg-accent-deep text-white" : "bg-hover text-muted hover:text-deep"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
             <ul className="m-0 list-none overflow-hidden rounded-2xl border border-line bg-panel shadow-card p-0">
               {(
                 [
-                  ["status", <>{health === "unknown" ? "starting..." : health === "up" ? "working" : "not working — start the app and try again"}</>],
+                  ["status", <>{health === "unknown" ? "starting..." : health === "up" ? "working" : "not working, start the app and try again"}</>],
                   ["search", <>looks through the words in everything you saved.</>],
                   ["tricky questions", <>hard questions get a second look before answering.</>],
                   ["summaries", <>built from your evidence, with sources shown.</>],
-                  ["shortcuts", <><kbd className={kbdCls}>/</kbd> focus · <kbd className={kbdCls}>⌘K</kbd> from anywhere · <kbd className={kbdCls}>enter</kbd> to search</>],
-                  ["your stuff", <>what you save stays as it is. nothing is rewritten.</>],
+                  ["shortcuts", <><kbd className={kbdCls}>/</kbd> focus · <kbd className={kbdCls}>⌘K</kbd> search · <kbd className={kbdCls}>⌘⇧S</kbd> capture · <kbd className={kbdCls}>⌘↵</kbd> synthesize · <kbd className={kbdCls}>esc</kbd> close</>],
+                  ["your stuff", <>what you save stays as it is. nothing is rewritten. disconnecting X keeps your memories unless you choose delete.</>],
                 ] as [string, React.ReactNode][]
               ).map(([label, value], i, all) => (
                 <li
@@ -1150,15 +1530,150 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 </li>
               ))}
             </ul>
-          </section>
+          </motion.section>
+        ) : showRecent ? (
+          <motion.section
+            key="recent"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+          >
+            <h2 className="px-1 pb-1 text-[22px] font-semibold tracking-[-0.02em] text-deep">Recent</h2>
+            <p className="mb-4 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/80">
+              latest captures, in order
+            </p>
+            {recentLoading ? (
+              <div className="space-y-1.5">
+                <div className="h-[52px] rounded-2xl border border-line bg-panel skeleton animate-shimmer" />
+                <div className="h-[52px] rounded-2xl border border-line bg-panel skeleton animate-shimmer" />
+              </div>
+            ) : recentItems.length === 0 ? (
+              <div className="rounded-2xl border border-line bg-panel px-4 py-3.5 text-[13px] text-muted shadow-card">
+                Nothing yet. Save something, it will appear here.
+              </div>
+            ) : (
+              <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+                {recentItems.map((h) => (
+                  <li
+                    key={h.id}
+                    className="rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 hover:-translate-y-px hover:border-accent/30"
+                  >
+                    <h3 className="m-0 text-[14px] font-semibold leading-snug text-deep [overflow-wrap:anywhere]">
+                      <Link href={`/item/${h.id}`} className="transition-colors hover:text-accent-deep">
+                        {displayTitle(h)}
+                      </Link>
+                    </h3>
+                    <p className="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-muted">
+                      <span className="rounded-full bg-hover px-1.5 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]">
+                        {styleOf(h.source_type).label}
+                      </span>
+                      <span className="font-mono text-[10.5px] tabular-nums">{relTime(h.captured_at, now)}</span>
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </motion.section>
+        ) : showArchive ? (
+          <motion.section
+            key="archive"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+          >
+            <h2 className="px-1 pb-1 text-[22px] font-semibold tracking-[-0.02em] text-deep">Archive</h2>
+            <p className="mb-4 px-1 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted/80">
+              views over one memory, not folders
+            </p>
+            <div className="mb-3 flex flex-wrap gap-1.5 px-1">
+              {(["all", "sources", "topics", "people", "projects", "collections"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => openArchive(v)}
+                  aria-pressed={archiveView === v}
+                  className={`rounded-full px-3 py-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] transition-all duration-150 active:scale-[0.97] ${
+                    archiveView === v ? "bg-accent-deep text-white" : "bg-hover text-muted hover:text-deep"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            {archiveLoading ? (
+              <div className="space-y-1.5">
+                <div className="h-[52px] rounded-2xl border border-line bg-panel skeleton animate-shimmer" />
+                <div className="h-[52px] rounded-2xl border border-line bg-panel skeleton animate-shimmer" />
+              </div>
+            ) : archiveData.groups ? (
+              <ul className="m-0 list-none space-y-1.5 p-0">
+                {archiveData.groups.map((g) => (
+                  <li
+                    key={(g.id ?? g.name) + g.name}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-4 py-2.5 shadow-card"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-deep">{g.name}</span>
+                    <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-muted">{g.count}</span>
+                  </li>
+                ))}
+                {archiveData.groups.length === 0 && (
+                  <li className="rounded-2xl border border-line bg-panel px-4 py-3.5 text-[13px] text-muted shadow-card">
+                    Nothing here yet under this view.
+                  </li>
+                )}
+              </ul>
+            ) : (archiveData.items ?? []).length > 0 ? (
+              <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+                {(archiveData.items ?? []).map((h) => (
+                  <li
+                    key={h.id}
+                    className="rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 hover:-translate-y-px hover:border-accent/30"
+                  >
+                    <h3 className="m-0 text-[14px] font-semibold leading-snug text-deep [overflow-wrap:anywhere]">
+                      <Link href={`/item/${h.id}`} className="transition-colors hover:text-accent-deep">
+                        {displayTitle(h)}
+                      </Link>
+                    </h3>
+                    <p className="m-0 mt-1 text-[11.5px] text-muted">
+                      <span className="rounded-full bg-hover px-1.5 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]">
+                        {styleOf(h.source_type).label}
+                      </span>
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="flex flex-col items-center gap-3 rounded-2xl border border-line bg-panel px-4 py-6 text-center shadow-card">
+                <div className="h-[150px] w-[180px]">
+                  <Folder color="white" size="sm" />
+                </div>
+                <p className="m-0 text-[13px] text-muted">Nothing here yet.</p>
+                <p className="m-0 max-w-[260px] text-[11.5px] leading-relaxed text-muted/80">
+                  Save a link, a note, a file, the archive fills as you live.
+                </p>
+              </div>
+            )}
+          </motion.section>
         ) : hero ? (
-          <section className="flex w-full max-w-[640px] flex-col items-center gap-5 text-center">
+          <motion.section
+            key="hero"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="flex w-full max-w-[640px] flex-col items-center gap-5 text-center"
+          >
             <h1 className="animate-rise m-0 mt-[clamp(20px,6vh,64px)] max-w-[520px] text-[clamp(26px,4.4vw,38px)] font-semibold leading-[1.14] tracking-[-0.025em] text-deep" style={{ animationDelay: "60ms" }}>
-              Save anything. Organize nothing.{" "}
-              <span className="text-grad">Find everything.</span>
+              Your information is scattered.{" "}
+              <span className="text-grad">Save it here.</span>
             </h1>
             <p className="animate-rise m-0 text-[12.5px] leading-relaxed text-muted" style={{ animationDelay: "120ms" }}>
-              search works the moment something is captured — <kbd className={kbdCls}>/</kbd> to focus,{" "}
+              Save anything. Find what you meant later. We&apos;ll make sense of it.{" "}
+              <kbd className={kbdCls}>/</kbd> to focus,{" "}
               <kbd className={kbdCls}>enter</kbd> to search.
             </p>
             {resurf.length > 0 && (
@@ -1175,7 +1690,7 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                     className="text-[11.5px] text-muted underline decoration-dotted underline-offset-2 hover:text-deep"
                     aria-pressed={hideSeen}
                   >
-                    {hideSeen ? "Showing all" : "Hide seen"}
+                    {hideSeen ? "Show seen" : "Hide seen"}
                   </button>
                 </p>
                 <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
@@ -1206,9 +1721,17 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 </ul>
               </div>
             )}
-          </section>
+          </motion.section>
         ) : (
-          <section className="mt-8 w-full max-w-[640px]" aria-live="polite">
+          <motion.section
+            key="results"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={panelExit}
+            transition={panelT}
+            className="mt-8 w-full max-w-[640px]"
+            aria-live="polite"
+          >
             <div className="flex items-baseline justify-between gap-3 px-1 pb-2.5">
               <h2 className="m-0 text-[22px] font-semibold tracking-[-0.02em] text-deep">
                 {phase === "error"
@@ -1278,7 +1801,7 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                   <button
                     type="button"
                     onClick={() => setFilter(null)}
-                    className="shrink-0 rounded-full bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent-deep transition-colors duration-150 hover:bg-accent hover:text-white"
+                    className="shrink-0 rounded-full bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent-deep transition-colors duration-150 hover:bg-accent-deep hover:text-white"
                   >
                     show all
                   </button>
@@ -1299,18 +1822,27 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 {groups.map((g) => (
                   <div key={g.key}>
                     <p
-                      className={`paper-blur sticky top-[62px] z-[1] m-0 mb-1.5 mt-3 flex items-center gap-2.5 px-1 py-1 ${stampCls}`}
+                      className={`paper-blur z-[1] m-0 mb-1.5 mt-3 flex items-center gap-2.5 px-1 py-1 md:sticky md:top-[62px] ${stampCls}`}
                       aria-hidden="true"
                     >
                       {g.label}
                       <span className="h-px flex-1 bg-line" />
                       <span className="tabular-nums">{g.items.length}</span>
                     </p>
-                    <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+                    <ol className="relative m-0 flex list-none flex-col gap-2.5 p-0">
+                      {/* the thread: runs behind the tile column, felt in the gaps */}
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-y-2 left-[31px] w-px"
+                        style={{
+                          background:
+                            "linear-gradient(to bottom, transparent, var(--color-line-strong) 5%, var(--color-line-strong) 95%, transparent)",
+                        }}
+                      />
                       {g.items.map((h, i) => (
                         <li
                           key={h.id}
-                          className="animate-rise group rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 hover:-translate-y-px hover:border-accent/30 hover:shadow-lift"
+                          className="animate-rise group relative rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 hover:-translate-y-px hover:border-accent/30 hover:shadow-lift"
                           style={{ animationDelay: `${Math.min(i * 30, 300)}ms` }}
                         >
                           <div className="flex items-start gap-3">
@@ -1354,10 +1886,10 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                                       href={h.raw_ref}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="inline-flex items-center gap-0.5 font-medium text-accent-deep transition-colors hover:text-accent"
+                                      className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-px text-[10px] font-semibold tracking-[0.03em] text-accent-deep shadow-card transition-all duration-150 hover:border-accent/40 hover:bg-accent-faint active:scale-[0.96]"
                                     >
                                       open original
-                                      <HugeiconsIcon icon={ArrowUpRight01Icon} size={11} className="shrink-0" />
+                                      <HugeiconsIcon icon={LinkSquare02Icon} size={10} strokeWidth={2} className="shrink-0" />
                                     </a>
                                   )}
                                 {(h.source_type === "pdf" || h.source_type === "image") && (
@@ -1365,10 +1897,10 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                                     href={`${API}/v1/items/${h.id}/file`}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex items-center gap-0.5 font-medium text-accent-deep transition-colors hover:text-accent"
+                                    className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-2 py-px text-[10px] font-semibold tracking-[0.03em] text-accent-deep shadow-card transition-all duration-150 hover:border-accent/40 hover:bg-accent-faint active:scale-[0.96]"
                                   >
                                     open file
-                                    <HugeiconsIcon icon={ArrowUpRight01Icon} size={11} className="shrink-0" />
+                                    <HugeiconsIcon icon={LinkSquare02Icon} size={10} strokeWidth={2} className="shrink-0" />
                                   </a>
                                 )}
                               </p>
@@ -1387,10 +1919,19 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                                   ) : (
                                     <ul className="m-0 list-none space-y-1.5 p-0">
                                       {(relMap[h.id] ?? []).map((rel) => (
-                                        <li key={rel.title + rel.reasons.join()}>
-                                          <span className="font-medium text-deep">{displayTitle(rel)}</span>
-                                          {" · "}
-                                          {rel.reasons.map((rc) => REASONS[rc] ?? rc).join(", ").toLowerCase()}
+                                        <li key={rel.title + rel.reasons.join()} className="flex items-center gap-2">
+                                          <Tile type={rel.source_type} size={22} />
+                                          <span className="min-w-0 flex-1 truncate font-medium text-deep">
+                                            {displayTitle(rel)}
+                                          </span>
+                                          {rel.reasons.map((rc) => (
+                                            <span
+                                              key={rc}
+                                              className="shrink-0 rounded-full bg-accent-soft px-1.5 py-px font-mono text-[9px] font-medium uppercase tracking-[0.06em] text-accent-deep"
+                                            >
+                                              {REASONS[rc] ?? rc}
+                                            </span>
+                                          ))}
                                         </li>
                                       ))}
                                     </ul>
@@ -1398,7 +1939,7 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                                 </div>
                               )}
                             </div>
-                            <span className="shrink-0 pt-0.5 font-mono text-[10.5px] tabular-nums text-muted/80">
+                            <span className="hidden shrink-0 pt-0.5 font-mono text-[10.5px] tabular-nums text-muted/80 sm:block">
                               {relTime(h.captured_at, now)}
                             </span>
                           </div>
@@ -1409,9 +1950,79 @@ function scopeChips(scope: { types: string[] | null; topic: string; view: string
                 ))}
               </div>
             )}
-          </section>
+          </motion.section>
         )}
+        </AnimatePresence>
       </main>
+      </div>
+
+      {/* mobile bottom bar, constitution §55: Search · Recent · Capture · Archive · Settings */}
+      <nav
+        className="glass fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-line pb-[env(safe-area-inset-bottom)] md:hidden"
+        aria-label="Primary"
+      >
+        <button
+          type="button"
+          onClick={focusSearch}
+          className="flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium text-muted transition-colors active:scale-95"
+        >
+          <HugeiconsIcon icon={Search01Icon} size={20} />
+          Search
+        </button>
+        <button
+          type="button"
+          onClick={openRecent}
+          className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors active:scale-95 ${
+            showRecent ? "text-accent-deep" : "text-muted"
+          }`}
+        >
+          <HugeiconsIcon icon={HistoryIcon} size={20} />
+          Recent
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowCapture((s) => !s);
+            setShowSettings(false);
+            setShowCleanup(false);
+            setShowReview(false);
+            setShowRecent(false);
+            setShowArchive(false);
+          }}
+          className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors active:scale-95 ${
+            showCapture ? "text-accent-deep" : "text-muted"
+          }`}
+        >
+          <HugeiconsIcon icon={PlusSignIcon} size={20} />
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => openArchive("all")}
+          className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors active:scale-95 ${
+            showArchive ? "text-accent-deep" : "text-muted"
+          }`}
+        >
+          <HugeiconsIcon icon={Bookmark01Icon} size={20} />
+          Archive
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowSettings((s) => !s);
+            setShowCleanup(false);
+            setShowReview(false);
+            setShowRecent(false);
+            setShowArchive(false);
+          }}
+          className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors active:scale-95 ${
+            showSettings ? "text-accent-deep" : "text-muted"
+          }`}
+        >
+          <HugeiconsIcon icon={Settings02Icon} size={20} />
+          Settings
+        </button>
+      </nav>
     </div>
   );
 }

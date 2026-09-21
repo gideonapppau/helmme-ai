@@ -53,7 +53,8 @@ func registerResurfaceRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	mux.HandleFunc("GET /v1/resurface", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := tenantID(r)
-		hideSeen := r.URL.Query().Get("hide_seen") == "1"
+		// Seen things stay buried by default; ?show_seen=1 digs them up.
+		hideSeen := r.URL.Query().Get("show_seen") != "1"
 		out, err := fetchResurfaced(ctx, pool, user, hideSeen)
 		if err != nil {
 			log.Printf("resurface failed err=%T", err)
@@ -66,7 +67,8 @@ func registerResurfaceRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 }
 
 // fetchResurfaced is shared with the weekly review: same candidates,
-// same reasons, same honesty.
+// same reasons, same honesty. The user's mood (Quiet/Balanced/Proactive)
+// decides how many come back: servers enforce it, clients only display it.
 func fetchResurfaced(ctx context.Context, pool *pgxpool.Pool, user string, hideSeen bool) ([]resurfaced, error) {
 	seenFilter := ""
 	if hideSeen {
@@ -87,7 +89,7 @@ func fetchResurfaced(ctx context.Context, pool *pgxpool.Pool, user string, hideS
 	         COALESCE((
 	           SELECT t.name FROM item_topics it
 	           JOIN topics t ON t.id = it.topic_id
-	           WHERE it.item_id = o.id AND t.id IN (
+	           WHERE it.item_id = o.id AND NOT t.hidden AND t.id IN (
 	             SELECT topic_id FROM item_topics WHERE item_id IN (SELECT id FROM recent))
 	           ORDER BY it.confidence DESC LIMIT 1), ''),
 	         COALESCE((
@@ -113,6 +115,10 @@ func fetchResurfaced(ctx context.Context, pool *pgxpool.Pool, user string, hideS
 	}
 	defer rows.Close()
 	out := []resurfaced{}
+	mode := "quiet"
+	_ = pool.QueryRow(ctx,
+		`SELECT resurface_mode FROM user_settings WHERE user_id=$1`, user).Scan(&mode)
+	limit := resurfaceLimit(mode)
 	for rows.Next() {
 		var s resurfaced
 		var topic, entity string
@@ -128,12 +134,12 @@ func fetchResurfaced(ctx context.Context, pool *pgxpool.Pool, user string, hideS
 			name = entity
 		}
 		if strings.Contains(name, ".") {
-			s.Reason = "More from " + name + " — also in recent saves."
+			s.Reason = "More from " + name + ", also in recent saves."
 		} else {
 			s.Reason = "Connected to recent saves about " + name + "."
 		}
 		out = append(out, s)
-		if len(out) >= 3 {
+		if len(out) >= limit {
 			break
 		}
 	}

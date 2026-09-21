@@ -21,6 +21,12 @@ describe("extension payload (contract with POST /v1/items)", () => {
     assert.ok(item.title.length <= 500);
     assert.ok(item.original.selected_text.length <= 5000);
   });
+  it("carries an optional note", () => {
+    const item = buildItem({ url: "https://e.com", title: "t" }, "", " my jot ");
+    assert.equal(item.original.note_text, "my jot");
+    const bare = buildItem({ url: "https://e.com", title: "t" }, "");
+    assert.ok(!("note_text" in bare.original));
+  });
   it("rejects non-web pages", () => {
     assert.equal(isSavableUrl("https://x.com"), true);
     assert.equal(isSavableUrl("chrome://extensions"), false);

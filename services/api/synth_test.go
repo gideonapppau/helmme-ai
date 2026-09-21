@@ -80,3 +80,21 @@ func TestCallChatCompletionsError(t *testing.T) {
 		t.Error("upstream error swallowed")
 	}
 }
+
+func TestNeedsMoreEvidence(t *testing.T) {
+	// Plain words: zero is "nothing found" (handled elsewhere), one or two
+	// is "not enough to conclude", three is a pile worth reasoning over.
+	if needsMoreEvidence(0) {
+		t.Error("zero evidence misread as thin")
+	}
+	for _, n := range []int{1, 2} {
+		if !needsMoreEvidence(n) {
+			t.Errorf("%d sources treated as enough", n)
+		}
+	}
+	for _, n := range []int{3, 12} {
+		if needsMoreEvidence(n) {
+			t.Errorf("%d sources treated as thin", n)
+		}
+	}
+}

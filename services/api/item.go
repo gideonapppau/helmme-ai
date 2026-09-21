@@ -97,7 +97,29 @@ func registerItemRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 			&kind, &mime, &size, &width, &height, &pages); err == nil {
 			asset = &assetInfo{kind, mime, size, width, height, pages}
 		}
-		// No asset row is normal (notes, links) — not worth a log line.
+		// No asset row is normal (notes, links), not worth a log line.
+
+		// Guesses live apart from the capture (§42). The UI shows these
+		// under "the system thinks", never mixed into the original.
+		type guess struct {
+			Key        string  `json:"key"`
+			Value      string  `json:"value"`
+			Source     string  `json:"source"`
+			Confidence float64 `json:"confidence"`
+		}
+		var derived []guess
+		mrows, err := pool.Query(ctx, `
+		  SELECT key, value, source, confidence FROM item_metadata
+		  WHERE item_id=$1 ORDER BY key`, id)
+		if err == nil {
+			defer mrows.Close()
+			for mrows.Next() {
+				var g guess
+				if err := mrows.Scan(&g.Key, &g.Value, &g.Source, &g.Confidence); err == nil {
+					derived = append(derived, g)
+				}
+			}
+		}
 
 		if topics == nil {
 			topics = []named{}
@@ -105,12 +127,16 @@ func registerItemRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		if entities == nil {
 			entities = []ent{}
 		}
+		if derived == nil {
+			derived = []guess{}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": id, "source_type": sourceType, "raw_ref": rawRef,
 			"title": title, "domain": domain, "captured_at": capturedAt,
 			"original": original, "topics": topics, "entities": entities,
-			"asset": asset, "status": status, "merged_into": mergedInto,
+			"derived": derived,
+			"asset":   asset, "status": status, "merged_into": mergedInto,
 			"content": content, "truncated": truncated,
 		})
 	})

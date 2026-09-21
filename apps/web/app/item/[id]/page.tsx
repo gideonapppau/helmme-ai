@@ -1,7 +1,15 @@
 "use client";
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  ArrowLeft02Icon,
+  Cancel01Icon,
+  Link01Icon,
+  LinkSquare02Icon,
+} from "@hugeicons/core-free-icons";
 import { REASONS, displayTitle } from "../../../lib/labels";
+import { Tile, styleOf } from "../../../lib/ui";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
@@ -35,6 +43,22 @@ const stampCls =
 function savedOn(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+// Back to the archive: arrow icon first, stamp-size label. One shape for
+// every state of this page (missing / loading / loaded).
+function BackLink() {
+  return (
+    <p className={`m-0 ${stampCls}`}>
+      <Link
+        href="/"
+        className="inline-flex items-center gap-1.5 transition-colors hover:text-accent-deep"
+      >
+        <HugeiconsIcon icon={ArrowLeft02Icon} size={13} strokeWidth={2} aria-hidden="true" />
+        Archive
+      </Link>
+    </p>
+  );
 }
 
 export default function ItemPage({ params }: { params: Promise<{ id: string }> }) {
@@ -93,11 +117,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
   if (missing)
     return (
       <main className="mx-auto w-full max-w-[660px] px-4 py-10">
-        <p className={stampCls}>
-          <Link href="/" className="transition-colors hover:text-accent-deep">
-            ← archive
-          </Link>
-        </p>
+        <BackLink />
         <p className="mt-6 font-brand text-[24px] font-semibold tracking-[-0.02em] text-deep">
           That is gone or was never here.
         </p>
@@ -109,27 +129,22 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
   if (!item)
     return (
       <main className="mx-auto w-full max-w-[660px] px-4 py-10">
-        <p className={stampCls}>
-          <Link href="/" className="transition-colors hover:text-accent-deep">
-            ← archive
-          </Link>
-        </p>
+        <BackLink />
         <p className={`mt-6 ${stampCls}`}>fetching…</p>
       </main>
     );
 
   return (
     <main className="mx-auto w-full max-w-[660px] px-4 pb-16 pt-6 md:px-6">
-      <p className={stampCls}>
-        <Link href="/" className="transition-colors hover:text-accent-deep">
-          ← archive
-        </Link>
-      </p>
+      <BackLink />
 
       <header className="animate-rise mt-5">
         <div className="flex items-center gap-2.5">
-          <span className="rounded-full bg-hover px-1.5 py-px font-mono text-[9.5px] font-medium uppercase tracking-[0.08em] text-muted">
-            {item.source_type}
+          <span className="inline-flex items-center gap-2">
+            <Tile type={item.source_type} size={22} />
+            <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.08em] text-muted">
+              {styleOf(item.source_type).label}
+            </span>
           </span>
           <span className="h-px flex-1 bg-line" />
         </div>
@@ -144,9 +159,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               href={item.raw_ref}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-accent-deep transition-colors hover:text-accent"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.04em] text-accent-deep shadow-card transition-all duration-150 hover:border-accent/40 hover:bg-accent-faint active:scale-[0.96]"
             >
-              open original ↗
+              open original
+              <HugeiconsIcon icon={LinkSquare02Icon} size={11} strokeWidth={2} aria-hidden="true" />
             </a>
           )}
           {(item.source_type === "pdf" || item.source_type === "image") && (
@@ -154,9 +170,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
               href={`${API}/v1/items/${item.id}/file`}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-accent-deep transition-colors hover:text-accent"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.04em] text-accent-deep shadow-card transition-all duration-150 hover:border-accent/40 hover:bg-accent-faint active:scale-[0.96]"
             >
-              open file{item.asset?.page_count ? ` · ${item.asset.page_count} pages` : ""} ↗
+              open file{item.asset?.page_count ? ` · ${item.asset.page_count}p` : ""}
+              <HugeiconsIcon icon={LinkSquare02Icon} size={11} strokeWidth={2} aria-hidden="true" />
             </a>
           )}
         </p>
@@ -190,7 +207,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       )}
 
       {item.source_type === "text" || item.source_type === "note" ? (
-        <p className="m-0 mt-6 whitespace-pre-wrap text-[14px] leading-[1.75] text-deep">{item.raw_ref}</p>
+        <p className="m-0 mt-6 whitespace-pre-wrap font-serif text-[15.5px] leading-[1.85] text-deep">{item.raw_ref}</p>
       ) : item.source_type === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -204,7 +221,7 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
         <div className="animate-rise mt-6 rounded-2xl border border-line bg-panel px-5 py-4 shadow-card">
           <p className={`m-0 mb-3 ${stampCls}`}>Extracted text</p>
           {item.content.split("\n").filter((p) => p.trim() !== "").map((p, i) => (
-            <p key={i} className="m-0 mb-2.5 text-[13px] leading-[1.7] text-deep last:mb-0">
+            <p key={i} className="m-0 mb-3 font-serif text-[14.5px] leading-[1.8] text-deep last:mb-0">
               {p}
             </p>
           ))}
@@ -232,10 +249,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
                   <button
                     type="button"
                     onClick={() => correct(id, "topic", t.id)}
-                    className="text-muted transition-colors hover:text-accent-deep"
+                    className="grid place-items-center text-muted transition-colors hover:bg-hover hover:text-deep"
                     aria-label={`Remove topic ${t.name}`}
                   >
-                    ×
+                    <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.2} aria-hidden="true" />
                   </button>
                 </span>
               ))}
@@ -252,10 +269,10 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
                   <button
                     type="button"
                     onClick={() => correct(id, "entity", e.id)}
-                    className="text-muted transition-colors hover:text-accent-deep"
+                    className="grid place-items-center text-muted transition-colors hover:bg-hover hover:text-deep"
                     aria-label={`Remove ${e.name}`}
                   >
-                    ×
+                    <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2.2} aria-hidden="true" />
                   </button>
                 </span>
               ))}
@@ -265,17 +282,44 @@ export default function ItemPage({ params }: { params: Promise<{ id: string }> }
       )}
 
       {related.length > 0 && (
-        <section className="mt-10">
+        <section className="relative mt-12">
           <h2 className="m-0 flex items-center gap-2.5">
             <span className={stampCls}>Connected memories</span>
             <span className="h-px flex-1 bg-line" />
           </h2>
-          <ul className="m-0 mt-3 grid list-none gap-2 p-0 sm:grid-cols-2">
-            {related.map((r) => (
-              <li key={r.id}>
+          <p className="m-0 mt-1.5 text-[11.5px] text-muted">Why these rose together.</p>
+
+          {/* the thread, fades in from the words, dissolves at the end */}
+          <span
+            aria-hidden="true"
+            className="absolute top-[70px] bottom-6 left-[7px] w-px"
+            style={{
+              background:
+                "linear-gradient(to bottom, transparent, var(--color-line-strong) 6%, var(--color-line-strong) 92%, transparent)",
+            }}
+          />
+
+          <ul className="m-0 mt-5 list-none space-y-4 p-0">
+            {related.map((r, i) => (
+              <li
+                key={r.id}
+                className="group relative animate-rise pl-8"
+                style={{ animationDelay: `${120 + i * 90}ms` }}
+              >
+                {/* node on the thread + tick reaching for the card */}
+                <span
+                  aria-hidden="true"
+                  className="absolute top-[22px] left-0 grid h-[15px] w-[15px] place-items-center rounded-full border border-line bg-panel text-accent shadow-card transition-colors duration-200 group-hover:border-accent/40"
+                >
+                  <HugeiconsIcon icon={Link01Icon} size={8} strokeWidth={2.4} />
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="absolute top-[29px] left-[15px] h-px w-[17px] bg-line-strong transition-colors duration-200 group-hover:bg-accent/40"
+                />
                 <Link
                   href={`/item/${r.id}`}
-                  className="group flex h-full flex-col gap-1 rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/30 hover:shadow-lift"
+                  className="flex h-full flex-col gap-1 rounded-2xl border border-line bg-panel px-3.5 py-3 shadow-card transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-accent/30 group-hover:shadow-lift"
                 >
                   <span className="text-[13px] font-semibold leading-snug text-deep transition-colors group-hover:text-accent-deep [overflow-wrap:anywhere]">
                     {displayTitle(r)}

@@ -9,6 +9,36 @@ import { fastPath, QueryRouterQuestions } from "@helmme/context-engine";
 // Rules (single source: @helmme/context-engine):
 // - obvious queries are answered by cheap rules, no Jev call
 // - Jev judges the closed operation set only, thresholds enforced in code
+// - every judgment is logged to the API's decision_events (best effort,
+//   never blocks the answer)
+
+// logDecision files the judgment with the API so answers stay auditable.
+// Plain words: the judge shows its work. Failures are swallowed on purpose.
+function logDecision(input: {
+  query: string;
+  source: string;
+  operation?: string;
+  confidence?: number;
+  probability?: number;
+  action: string;
+}) {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
+  fetch(`${base}/v1/decision-events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      component: "query-router",
+      model: input.source === "jev" ? "jev-latest" : "rule",
+      input: { query: input.query },
+      result: {
+        action: input.action,
+        operation: input.operation ?? null,
+        confidence: input.confidence ?? null,
+        probability: input.probability ?? null,
+      },
+    }),
+  }).catch(() => {});
+}
 
 export async function POST(req: Request) {
   let body: { query?: string };
@@ -24,6 +54,7 @@ export async function POST(req: Request) {
 
   const ruled = fastPath(query);
   if (ruled) {
+    logDecision({ query, source: "rule", operation: ruled, action: "dispatch" });
     return NextResponse.json({
       action: "dispatch",
       operation: ruled,
@@ -59,8 +90,10 @@ export async function POST(req: Request) {
     const conf = confidence.operation ?? 0;
     const prob = answers.operation.probabilities?.[op] ?? 0;
     if (conf < 0.6 || prob < 0.7) {
+      logDecision({ query, source: "jev", operation: op, confidence: conf, probability: prob, action: "human-review" });
       return NextResponse.json({ action: "human-review", reason: "Not sure yet.", source: "jev" });
     }
+    logDecision({ query, source: "jev", operation: op, confidence: conf, probability: prob, action: "dispatch" });
     return NextResponse.json({
       action: "dispatch",
       operation: op,

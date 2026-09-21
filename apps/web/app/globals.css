@@ -1,27 +1,30 @@
 @import "tailwindcss" source("../");
 
+/* dark: class strategy — the archive at night, toggled from the rail */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* helmme — "the quiet archive".
    Warm paper, hairline borders, soft two-layer shadows. Time is the spine,
    ember orange is the single voice of attention, mono type is the stamp.
-   Paper: Deep #1C1917 · Light #FAF8F4 · Muted #8A8378 · Ember #FC4C01. */
+   Paper: Deep #1C1917 · Light #FAF8F4 · Muted #756F68 · Ember #FC4C01. */
 
 @theme {
   /* paper neutrals */
   --color-deep: #1c1917;
   --color-light: #faf8f4;
-  --color-muted: #8a8378;
+  --color-muted: #756f68;
   --color-panel: #ffffff;
   --color-hover: #f3efe8;
   --color-line: rgba(28, 25, 23, 0.09);
   --color-line-strong: rgba(28, 25, 23, 0.17);
   --color-ring: rgba(28, 25, 23, 0.05);
 
-  /* the ember — one confident orange, pressed darker, warm washes for chips */
+  /* the ember — one confident orange. accent-deep carries text so small ember
+     words pass AA (4.96:1 on paper); #fc4c01 stays for washes and large marks. */
   --color-accent: #fc4c01;
-  --color-accent-deep: #e64500;
+  --color-accent-deep: #cc3d00;
   --color-accent-soft: #fff1e8;
   --color-accent-faint: #fff8f2;
-  --color-violet: #ff8a3d;
 
   /* semantic tints (functional, kept) */
   --color-good: #15803d;
@@ -31,7 +34,8 @@
   --color-bad: #dc2626;
   --color-bad-soft: #fef2f2;
 
-  --font-sans: var(--font-ui), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: var(--font-ui), "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-read), "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-brand: var(--font-mark), var(--font-ui), system-ui, sans-serif;
   --font-mono: var(--font-geist), ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
 
@@ -78,7 +82,71 @@
 @layer base {
   :root {
     color-scheme: light;
-    --grad-brand: linear-gradient(120deg, #fc4c01 0%, #ff7a29 55%, #ff9e57 100%);
+    /* gradient moments — stops hold 3.1:1+ on paper for the display headline */
+    --grad-brand: linear-gradient(120deg, #fc4c01 0%, #f55b0e 55%, #ef5408 100%);
+
+    /* source-type tiles (light) */
+    --tile-url-bg: #e8f0fe;
+    --tile-url-ink: #2563eb;
+    --tile-note-bg: #fdf3e0;
+    --tile-note-ink: #b45309;
+    --tile-file-bg: #e9f8ee;
+    --tile-file-ink: #16a34a;
+    --tile-pdf-bg: #e6f7f5;
+    --tile-pdf-ink: #0d9488;
+    --tile-image-bg: #f7effd;
+    --tile-image-ink: #9333ea;
+    --tile-bookmark-bg: #fff1e8;
+    --tile-bookmark-ink: #fc4c01;
+    --tile-x-bg: #eef1f5;
+    --tile-x-ink: #111418;
+    --tile-fallback-bg: #f1efe9;
+    --tile-fallback-ink: #8a8378;
+  }
+
+  /* the archive at night — warm dark, never blue-dark */
+  .dark {
+    color-scheme: dark;
+    --color-deep: #ece7df;
+    --color-light: #161311;
+    --color-muted: #9a9188;
+    --color-panel: #1e1a17;
+    --color-hover: #28221e;
+    --color-line: rgba(236, 231, 223, 0.09);
+    --color-line-strong: rgba(236, 231, 223, 0.18);
+    --color-ring: rgba(236, 231, 223, 0.05);
+
+    --color-accent: #fc4c01;
+    --color-accent-deep: #ff6a2b;
+    --color-accent-soft: #2f1708;
+    --color-accent-faint: #241207;
+
+    --color-good: #4ade80;
+    --color-good-soft: #0d2417;
+    --color-warn: #fbbf24;
+    --color-warn-soft: #2a2005;
+    --color-bad: #f87171;
+    --color-bad-soft: #2b1212;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 10px -2px rgba(0, 0, 0, 0.5);
+    --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.45), 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+
+    --tile-url-bg: #1c2333;
+    --tile-url-ink: #8ab2ff;
+    --tile-note-bg: #2e2213;
+    --tile-note-ink: #f5b34a;
+    --tile-file-bg: #14291c;
+    --tile-file-ink: #5bd97f;
+    --tile-pdf-bg: #0f2a27;
+    --tile-pdf-ink: #4fd1c0;
+    --tile-image-bg: #291a33;
+    --tile-image-ink: #c88af5;
+    --tile-bookmark-bg: #2f1708;
+    --tile-bookmark-ink: #ff7a3d;
+    --tile-x-bg: #2a2e35;
+    --tile-x-ink: #e7ecf3;
+    --tile-fallback-bg: #26211d;
+    --tile-fallback-ink: #a39a8f;
   }
 
   /* paper grain — barely there, felt more than seen */
@@ -91,6 +159,11 @@
     opacity: 0.032;
     mix-blend-mode: multiply;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .dark body::after {
+    opacity: 0.055;
+    mix-blend-mode: soft-light;
   }
 
   ::selection {
@@ -135,6 +208,10 @@
 /* loading rows */
 @utility skeleton {
   background: linear-gradient(90deg, #f3efe8 25%, #eae5dc 45%, #f3efe8 65%);
+  background-size: 200% 100%;
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #241f1b 25%, #2b2521 45%, #241f1b 65%);
   background-size: 200% 100%;
 }
 

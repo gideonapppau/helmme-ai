@@ -1,12 +1,15 @@
-// Context Engine — Jev decision layer.
+// Context Engine — Jev decision layer (constitution APP_CONSTITUTION.md App. J).
+// Memory answers "What do I know?"; Jev answers "Given what I know, what
+// should I do next?" Separate brands, shared infra. Jev is the first major
+// consumer of the context infrastructure, not a feature inside capture.
 // Rule: LLM/code extracts open slots; Jev judges closed sets only.
 // Vercel AI SDK: experimental_evaluate, model 'typesafe-ai/jev'.
 // boolean answer -> probability; choice/score confidence lives in
 // providerMetadata.typesafe.confidence.
 
 // Deterministic fast-path (cheap parsing first). Intent taxonomy is the
-// spec's (§22): LOOKUP finds one thing, SEARCH looks broadly, FILTER
-// narrows, SYNTHESIZE combines, COMPARE sets side by side, RECALL rebuilds
+// constitution's (§75–§76): LOOKUP finds one thing, SEARCH looks broadly, FILTER
+// narrows, SYNTHESIS combines, COMPARE sets side by side, RECALL rebuilds
 // half-memories, REDISCOVER resurfaces the forgotten.
 export type Operation = 'LOOKUP' | 'SEARCH' | 'FILTER' | 'SYNTHESIS' | 'COMPARE' | 'RECALL' | 'REDISCOVER';
 

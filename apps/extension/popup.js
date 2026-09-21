@@ -4,6 +4,7 @@ const API = "http://localhost:8081";
 const titleEl = document.getElementById("title");
 const domainEl = document.getElementById("domain");
 const selEl = document.getElementById("sel");
+const noteEl = document.getElementById("note");
 const saveBtn = document.getElementById("save");
 const msgEl = document.getElementById("msg");
 
@@ -57,7 +58,7 @@ saveBtn.addEventListener("click", async () => {
     const r = await fetch(`${API}/v1/items`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildItem(tab, selection)),
+      body: JSON.stringify(buildItem(tab, selection, noteEl ? noteEl.value : "")),
     });
     if (!r.ok) throw new Error(await r.text());
     say("Saved.", "ok");

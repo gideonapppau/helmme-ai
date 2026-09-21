@@ -1,7 +1,7 @@
-# Retrospective — everything built, planned properly
+# Retrospective, everything built, planned properly
 
 Date: 2026-09-20. Every shipped slice reviewed: what exists, what covers
-it, what is owed. Nothing below is new scope — it is the debt on what
+it, what is owed. Nothing below is new scope, it is the debt on what
 we already claim works.
 
 ## 0. Version control (the riskiest item)
@@ -17,8 +17,8 @@ we already claim works.
 
 - Built: Item model, POST /v1/items, POST /v1/search (FTS + excerpts +
   de-slugged + list-free understanding), omnibar UI. All live-verified.
-- Covered: 17 Go tests, tsc, 18 node tests, migrations 001–006.
-- Owed: no DELETE endpoint (raw SQL was used twice — the proof),
+- Covered: 17 Go tests, tsc, 18 node tests, migrations 001-006.
+- Owed: no DELETE endpoint (raw SQL was used twice, the proof),
   no GET single item, tenant is a hardcoded stub (no auth).
 - Plan: DELETE + GET item with ownership checks and tombstone note;
   auth stays stubbed but the seam stays explicit.
@@ -28,7 +28,7 @@ we already claim works.
 - Built: validation, size caps, sniffed uploads, tenant scoping,
   parameterized queries, opaque logs, restrictive CORS.
 - Owed: no rate limiting, no auth (localhost-only is the current
-  boundary — true today, must not survive first deploy), upload
+  boundary, true today, must not survive first deploy), upload
   endpoint trusts any local caller.
 - Plan: rate limits on write endpoints; document "localhost is the
   boundary" in ARCHITECTURE.md; auth design before any network exposure.
@@ -37,11 +37,10 @@ we already claim works.
 
 - Built: question sets, thresholds in code, mock tests, live
   `/api/route-query` with direct key. Verified ambiguous → human-review.
-- Owed: fastPath is TRIPLICATED (page.tsx, route.ts, context-engine) —
-  one source, two importers. Router still runs 6 ops vs the spec's 7
+- Owed: fastPath is TRIPLICATED (page.tsx, route.ts, context-engine),   one source, two importers. Router still runs 6 ops vs the spec's 7
   intents (§22). `as any` casts in route.ts. Thresholds (0.6/0.7) are
   guesses with no labeled data. Claim verifier exists but synthesis v1
-  does not call it — the flagship safety feature is designed, not built.
+  does not call it, the flagship safety feature is designed, not built.
 - Plan: single-source the router; align to 7 intents; wire per-claim
   Jev checks into synthesis; calibrate thresholds on 50 labeled queries.
 
@@ -94,7 +93,7 @@ we already claim works.
 ## 9. Copy + UI language
 
 - Built: simple-English pass over app, settings, extension.
-- Owed: vigilance only — the rule decays with every new string.
+- Owed: vigilance only, the rule decays with every new string.
   Rule: no ports, no internals, no milestone names on screen. Ever.
 
 ## 10. Docs + toolchain

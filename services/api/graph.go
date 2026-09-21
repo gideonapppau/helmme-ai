@@ -1,7 +1,7 @@
 // Context graph v1 (§§62-64): deterministic extraction only.
 // Folders become topics, domains become site entities, capitalized title
 // words become low-confidence guesses. An LLM extractor plugs in beside
-// this one when a key exists — same tables, same API.
+// this one when a key exists, same tables, same API.
 package main
 
 import (
@@ -49,7 +49,7 @@ func entitiesFromDomain(domain string) []entityCand {
 
 // titleCandidates picks capitalized words as guesses. Filename artifacts
 // (underscores, extensions) are skipped. Weak signal, low confidence,
-// always marked deterministic — precision comes with the LLM.
+// always marked deterministic, precision comes with the LLM.
 func titleCandidates(title string) []entityCand {
 	seen := map[string]bool{}
 	var out []entityCand
@@ -129,8 +129,16 @@ func endsSentence(prev string) bool {
 }
 
 // enrichItem links one item to its topics and entities. Idempotent:
-// re-running never duplicates links.
+// re-running never duplicates links. Honors the enrichment switch: when
+// the user turns guesses off, saving and searching carry on, only new
+// guesses stop. A missing settings row means on.
 func enrichItem(ctx context.Context, pool *pgxpool.Pool, user, itemID string) error {
+	enrichOn := true
+	_ = pool.QueryRow(ctx,
+		`SELECT ai_enrichment FROM user_settings WHERE user_id=$1`, user).Scan(&enrichOn)
+	if !enrichOn {
+		return nil
+	}
 	var sourceType, title, domain, origRaw, content string
 	err := pool.QueryRow(ctx, `
 	  SELECT i.source_type, COALESCE(i.title,''), COALESCE(i.domain,''),
@@ -209,6 +217,8 @@ func enrichItem(ctx context.Context, pool *pgxpool.Pool, user, itemID string) er
 	_, _ = pool.Exec(ctx, `DELETE FROM entities WHERE source='deterministic'
 	  AND id NOT IN (SELECT entity_id FROM item_entities)
 	  AND id NOT IN (SELECT target_id FROM user_corrections WHERE kind='entity')`)
+	// File what this item proves about its neighbors (stored edges, §72).
+	storeEdges(ctx, pool, user, itemID, domain, content, keepTopics)
 	embedItem(ctx, pool, title, content, itemID)
 	return nil
 }
@@ -237,7 +247,7 @@ func embedItem(ctx context.Context, pool *pgxpool.Pool, title, content, itemID s
 }
 
 func registerGraphRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
-	// POST /v1/enrich/backfill — one-shot pass over everything saved.
+	// POST /v1/enrich/backfill, one-shot pass over everything saved.
 	mux.HandleFunc("POST /v1/enrich/backfill", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := tenantID(r)

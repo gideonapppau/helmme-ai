@@ -1,5 +1,5 @@
 // Fetcher tests: SSRF refusals, title shapes, hostile servers.
-// The guard is the product here — every blocked shape is asserted.
+// The guard is the product here, every blocked shape is asserted.
 package main
 
 import (
@@ -79,5 +79,54 @@ func TestFetchTitle(t *testing.T) {
 	}
 	if _, err := fetchTitle(srv.URL + "/slow"); err == nil {
 		t.Error("slow server accepted past timeout")
+	}
+}
+
+func TestFetchBody(t *testing.T) {
+	testAllowPrivate = true
+	defer func() { testAllowPrivate = false }()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/article":
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(`<html><head><title>Pool Guide</title>` +
+				`<meta name="author" content="Ada Lovelace">` +
+				`<meta property="article:published_time" content="2026-01-02T03:04:05Z">` +
+				`</head><body><nav>menu menus</nav><article>` +
+				`<p>Connection pooling keeps twenty database connections warm for workers.</p>` +
+				`<script>var steal = 1;</script>` +
+				`<p>click here</p>` +
+				`</article></body></html>`))
+		case "/file":
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write([]byte("%PDF-1.4 fake"))
+		}
+	}))
+	defer srv.Close()
+
+	title, body, author, pubdate, err := fetchBody(srv.URL + "/article")
+	if err != nil {
+		t.Fatalf("article refused: %v", err)
+	}
+	if title != "Pool Guide" {
+		t.Errorf("title=%q", title)
+	}
+	if !strings.Contains(body, "twenty database connections") {
+		t.Errorf("body lost the sentence: %q", body)
+	}
+	if strings.Contains(body, "steal") || strings.Contains(body, "menu menus") {
+		t.Errorf("furniture leaked into body: %q", body)
+	}
+	if strings.Contains(body, "click here") {
+		t.Errorf("crumb kept: %q", body)
+	}
+	if author != "Ada Lovelace" {
+		t.Errorf("author=%q", author)
+	}
+	if pubdate != "2026-01-02T03:04:05Z" {
+		t.Errorf("pubdate=%q", pubdate)
+	}
+	if _, _, _, _, err := fetchBody(srv.URL + "/file"); err == nil {
+		t.Error("non-html page read as article")
 	}
 }

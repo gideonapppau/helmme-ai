@@ -1,4 +1,4 @@
-// File capture: PDFs + images (§9, §114, §116 MVP content).
+// File capture: PDFs + images + text files + Word docs (§9, §114, §116 MVP content).
 // Multipart upload -> sniffed validation -> content-addressed storage ->
 // deterministic extraction (PDF text, image dimensions) -> Item + asset.
 // Bytes never enter the database; storage_ref can move to S3 later.
@@ -18,11 +18,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ledongthuc/pdf"
+	"github.com/nguyenthenguyen/docx"
 )
 
 const (
@@ -31,11 +33,13 @@ const (
 	maxExtractChars = 200_000
 )
 
-// Extension allowlist. Bytes are sniffed too — extension alone proves nothing.
+// Extension allowlist. Bytes are sniffed too, extension alone proves nothing.
 var uploadKinds = map[string]string{
 	".pdf": "pdf",
 	".png": "image", ".jpg": "image", ".jpeg": "image",
 	".gif": "image", ".webp": "image",
+	".md": "text", ".markdown": "text", ".txt": "text",
+	".docx": "docx",
 }
 
 // classifyUpload maps filename + sniffed bytes to (kind, mime).
@@ -60,6 +64,17 @@ func classifyUpload(filename string, head []byte) (kind, mime string, errMsg str
 		if mime != want {
 			return "", "", "image content does not match its extension"
 		}
+	case "text":
+		// Plain words: a .txt that is secretly a program is refused.
+		if !strings.HasPrefix(mime, "text/plain") {
+			return "", "", "text file is not plain text"
+		}
+	case "docx":
+		// Plain words: a Word file is a zip in disguise. Anything else
+		// wearing .docx is refused.
+		if mime != "application/zip" {
+			return "", "", "file is not a Word document"
+		}
 	}
 	return kind, mime, ""
 }
@@ -69,7 +84,7 @@ func classifyUpload(filename string, head []byte) (kind, mime string, errMsg str
 // Many exporters (Word, Google Docs) position every glyph separately, which
 // makes row-grouped extraction come out as "H e l l o". Stream order keeps
 // words intact, so it is preferred; row grouping is the fallback.
-// Scanned-image PDFs yield no text — recorded, not an error (OCR is §97,
+// Scanned-image PDFs yield no text, recorded, not an error (OCR is §97,
 // explicitly later; enrichment stays at the deterministic tier).
 func extractPDFText(data []byte) (string, int, string) {
 	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -122,7 +137,7 @@ func cleanExtracted(s string) string {
 
 // streamText concatenates glyph runs in content-stream order, which keeps
 // words whole. A space is inserted only where the horizontal gap between
-// runs shows the words were separate — never between touching glyphs.
+// runs shows the words were separate, never between touching glyphs.
 // Whitespace is normalized for search, not for display.
 func streamText(p pdf.Page) string {
 	var sb strings.Builder
@@ -162,8 +177,37 @@ func rowText(p pdf.Page) string {
 	return strings.Join(strings.Fields(sb.String()), " ")
 }
 
+// extractDOCXText reads a Word file's words. Plain words: .docx is a zip
+// of XML pages; we unzip, keep only the text runs (<w:t>…</w:t>), and drop
+// the markup. Password-locked or broken files are refused, not guessed at.
+func extractDOCXText(data []byte) (string, string) {
+	r, err := docx.ReadDocxFromMemory(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", "unreadable Word file"
+	}
+	defer r.Close()
+	var parts []string
+	for _, m := range docxTextRe.FindAllStringSubmatch(r.Editable().GetContent(), -1) {
+		if t := strings.TrimSpace(m[1]); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	out := cleanExtracted(strings.Join(parts, " "))
+	if len(out) > maxExtractChars {
+		out = out[:maxExtractChars]
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", "Word file has no readable text"
+	}
+	return out, ""
+}
+
+// docxTextRe finds Word text runs. Inside <w:t> lives only text by spec,
+// so a small matcher beats a full XML parser here.
+var docxTextRe = regexp.MustCompile(`<w:t[^>]*>([^<]*)</w:t>`)
+
 // imageDims reads dimensions without decoding pixels. Formats the stdlib
-// cannot parse return ok=false — stored with null dims, still searchable.
+// cannot parse return ok=false, stored with null dims, still searchable.
 func imageDims(data []byte) (w, h int, ok bool) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -204,7 +248,10 @@ func registerUploadRoutes(mux *http.ServeMux, pool *pgxpool.Pool, uploadDir stri
 			http.Error(w, msg, 400)
 			return
 		}
-		sourceType := kind // "pdf" | "image", both in allowedSourceTypes
+		sourceType := kind // "pdf" | "image" | "text", all in allowedSourceTypes
+		if kind == "docx" {
+			sourceType = "file" // generic file shelf; words still indexed below
+		}
 
 		sum := sha256.Sum256(data)
 		hash := hex.EncodeToString(sum[:])
@@ -228,7 +275,25 @@ func registerUploadRoutes(mux *http.ServeMux, pool *pgxpool.Pool, uploadDir stri
 		var text string
 		orig := map[string]any{"filename": name, "mime": mime, "byte_size": len(data)}
 		var width, height, pages *int
-		if kind == "pdf" {
+		if kind == "text" {
+			// Plain words: notes and markdown arrive readable already, 			// no extraction needed, just a wash and a cap.
+			text = cleanExtracted(string(data))
+			if len(text) > maxExtractChars {
+				text = text[:maxExtractChars]
+			}
+			if strings.TrimSpace(text) == "" {
+				http.Error(w, "empty text file", 400)
+				return
+			}
+		} else if kind == "docx" {
+			t, emsg := extractDOCXText(data)
+			if emsg != "" {
+				http.Error(w, emsg, 400)
+				return
+			}
+			text = t
+			orig["has_text"] = strings.TrimSpace(t) != ""
+		} else if kind == "pdf" {
 			t, p, emsg := extractPDFText(data)
 			if emsg != "" {
 				http.Error(w, emsg, 400)
@@ -270,13 +335,17 @@ func registerUploadRoutes(mux *http.ServeMux, pool *pgxpool.Pool, uploadDir stri
 			http.Error(w, "internal error", 500)
 			return
 		}
-		if _, err := pool.Exec(ctx, `
-		  INSERT INTO item_assets (item_id, kind, storage_ref, mime, byte_size, width, height, page_count)
-		  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			id, kind, stored, mime, len(data), nullInt(width), nullInt(height), nullInt(pages)); err != nil {
-			log.Printf("upload asset failed err=%T", err)
-			http.Error(w, "internal error", 500)
-			return
+		// The asset table only tracks PDFs and images (sizes, pages, dims).
+		// Text files need no such row, their words are the whole asset.
+		if kind == "pdf" || kind == "image" {
+			if _, err := pool.Exec(ctx, `
+			  INSERT INTO item_assets (item_id, kind, storage_ref, mime, byte_size, width, height, page_count)
+			  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+				id, kind, stored, mime, len(data), nullInt(width), nullInt(height), nullInt(pages)); err != nil {
+				log.Printf("upload asset failed err=%T", err)
+				http.Error(w, "internal error", 500)
+				return
+			}
 		}
 		if _, err := pool.Exec(ctx, `INSERT INTO provenance_events (item_id, kind) VALUES ($1,'captured')`, id); err != nil {
 			log.Printf("upload provenance failed err=%T", err)

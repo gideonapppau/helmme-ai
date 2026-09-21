@@ -31,7 +31,7 @@ type Hit struct {
 
 // searchScope narrows a search. Parsed from the query itself:
 // `in:notes`, `topic:Dev`, `view:"My view"`. Unknown tokens are left
-// alone — a typo never errors.
+// alone, a typo never errors.
 type searchScope struct {
 	Types []string `json:"types"`
 	Topic string   `json:"topic"`
@@ -45,6 +45,20 @@ var scopeTypes = map[string][]string{
 	"code":     {"file"},
 	"media":    {"image"},
 	"saved":    {"bookmark"},
+	"x":        {"x"},
+}
+
+// sourceScopeTypes maps a `source:` word to item kinds. Plain words: typing
+// "source:x ..." shows only X posts, the same as tapping the X chip.
+var sourceScopeTypes = map[string][]string{
+	"x": {"x"}, "twitter": {"x"},
+	"notes": {"text", "note"}, "note": {"text", "note"},
+	"articles": {"url", "pdf"}, "article": {"url", "pdf"},
+	"code": {"file"}, "media": {"image"},
+	"saved": {"bookmark"}, "bookmarks": {"bookmark"},
+	// Plain type names work too: "source:url", "source:pdf", ...
+	"url": {"url"}, "pdf": {"pdf"}, "file": {"file"},
+	"image": {"image"}, "bookmark": {"bookmark"}, "text": {"text"},
 }
 
 // parseScope pulls scope tokens out, returning the clean text first.
@@ -57,6 +71,12 @@ func parseScope(raw string) (string, searchScope) {
 		lower := strings.ToLower(t)
 		if rest, ok := strings.CutPrefix(lower, "in:"); ok {
 			if types, ok := scopeTypes[rest]; ok {
+				sc.Types = append(sc.Types, types...)
+				continue
+			}
+		}
+		if rest, ok := strings.CutPrefix(lower, "source:"); ok {
+			if types, ok := sourceScopeTypes[rest]; ok {
 				sc.Types = append(sc.Types, types...)
 				continue
 			}
@@ -127,7 +147,7 @@ func (s searchScope) active() bool {
 
 // scopeIDs resolves scope filters to item ids in one query. Empty scope
 // means everything (nil, no filter). Dynamic args stay positional and
-// parameterized — values never touch SQL text.
+// parameterized, values never touch SQL text.
 func scopeIDs(ctx context.Context, pool *pgxpool.Pool, user string, scope searchScope, viewText string) []string {
 	if !scope.active() {
 		return nil
@@ -141,8 +161,8 @@ func scopeIDs(ctx context.Context, pool *pgxpool.Pool, user string, scope search
 	if scope.Topic != "" {
 		args = append(args, scope.Topic)
 		conds = append(conds, fmt.Sprintf(`EXISTS (SELECT 1 FROM item_topics it
-		  JOIN topics t ON t.id=it.topic_id
-		  WHERE it.item_id=items.id AND LOWER(t.name)=LOWER($%d))`, len(args)))
+		  JOIN topics t ON t.id = it.topic_id
+		  WHERE it.item_id=items.id AND NOT t.hidden AND LOWER(t.name)=LOWER($%d))`, len(args)))
 	}
 	if viewText != "" {
 		args = append(args, searchNorm(viewText))
@@ -173,7 +193,7 @@ func queryFTS(ctx context.Context, pool *pgxpool.Pool, user, qtext string, limit
 	           '`+headlineOpts+`') AS headline,
 	         COALESCE((SELECT json_agg(t.name ORDER BY it.confidence DESC)
 	           FROM item_topics it JOIN topics t ON t.id = it.topic_id
-	           WHERE it.item_id = i.id), '[]') AS topics,
+	           WHERE it.item_id = i.id AND NOT t.hidden), '[]') AS topics,
 	         ts_rank(c.search_tsv, `+qexpr+`) AS rank
 	  FROM items i JOIN item_contents c ON c.item_id=i.id
 	  WHERE i.user_id=$3 AND i.status='active' AND ($4::uuid[] IS NULL OR i.id = ANY($4::uuid[])) AND c.search_tsv @@ `+qexpr+`
@@ -221,7 +241,7 @@ func vectorSearch(ctx context.Context, pool *pgxpool.Pool, user string, vec []fl
 	           '`+headlineOpts+`') AS headline,
 	         COALESCE((SELECT json_agg(t.name ORDER BY it.confidence DESC)
 	           FROM item_topics it JOIN topics t ON t.id = it.topic_id
-	           WHERE it.item_id = i.id), '[]') AS topics,
+	           WHERE it.item_id = i.id AND NOT t.hidden), '[]') AS topics,
 	         1 - (c.embedding <=> $1::vector) AS rank
 	  FROM items i JOIN item_contents c ON c.item_id=i.id
 	  WHERE i.user_id=$3 AND i.status='active' AND ($5::uuid[] IS NULL OR i.id = ANY($5::uuid[])) AND c.embedding IS NOT NULL
@@ -267,6 +287,72 @@ func fuseRRF(limit int, lists ...[]Hit) []Hit {
 	return out
 }
 
+// nudgeOwnThinking lifts the user's own words when the question is about
+// their thinking ("what did I decide", "my notes on"). Plain words: when you
+// ask what YOU thought, your notes answer first, not strangers' articles.
+func nudgeOwnThinking(rawQuery string, hits []Hit) []Hit {
+	if !ownThinkingQuery(rawQuery) || len(hits) == 0 {
+		return hits
+	}
+	for i := range hits {
+		if hits[i].Source == "text" || hits[i].Source == "note" {
+			hits[i].Rank *= 1.5
+		}
+	}
+	sort.Slice(hits, func(a, b int) bool { return hits[a].Rank > hits[b].Rank })
+	return hits
+}
+
+// ownThinkingQuery spots questions about the user's own mind.
+func ownThinkingQuery(q string) bool {
+	lower := strings.ToLower(q)
+	for _, w := range []string{
+		"i decid", "i learn", "i thought", "i think", "i wrote", "i said",
+		"my notes", "my thinking", "did i ", "have i ", "what do i ",
+	} {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// nudgeRecentContext lifts saves from places you've been reading lately.
+// Plain words: if you've spent the month on one site, its older saves rise
+// a little. A small lift (1.2x) for recency of interest, never quality.
+func nudgeRecentContext(recentDomains map[string]bool, hits []Hit) []Hit {
+	if len(recentDomains) == 0 || len(hits) == 0 {
+		return hits
+	}
+	for i := range hits {
+		if hits[i].Domain != "" && recentDomains[hits[i].Domain] {
+			hits[i].Rank *= 1.2
+		}
+	}
+	sort.Slice(hits, func(a, b int) bool { return hits[a].Rank > hits[b].Rank })
+	return hits
+}
+
+// recentDomains lists where the last 30 days of saves came from.
+func recentDomains(ctx context.Context, pool *pgxpool.Pool, user string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := pool.Query(ctx, `
+	  SELECT DISTINCT domain FROM items
+	  WHERE user_id=$1 AND status='active' AND sync_state<>'deleted'
+	    AND captured_at > now() - interval '30 days' AND domain <> ''`, user)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err == nil && d != "" {
+			out[d] = true
+		}
+	}
+	return out
+}
+
 // runSearch blends word matches with meaning matches, then falls back
 // to the relaxed OR query. Returns hits, approximate flag, and the scope
 // that was applied (for chips). Meaning search is skipped silently
@@ -290,14 +376,16 @@ func runSearch(ctx context.Context, pool *pgxpool.Pool, user, rawQuery string, l
 		if vhits, verr := vectorSearch(ctx, pool, user, vec, limit, headlineOpts, query, ids); verr == nil {
 			fused := fuseRRF(limit, hits, vhits)
 			if len(fused) > 0 {
-				return fused, len(hits) == 0, scope, nil
+				merged := nudgeOwnThinking(cleanText, fused)
+				return nudgeRecentContext(recentDomains(ctx, pool, user), merged), len(hits) == 0, scope, nil
 			}
 		} else {
 			log.Printf("vector search failed err=%T", verr)
 		}
 	}
 	if len(hits) > 0 {
-		return hits, false, scope, nil
+		merged := nudgeOwnThinking(cleanText, hits)
+		return nudgeRecentContext(recentDomains(ctx, pool, user), merged), false, scope, nil
 	}
 	if ors := orQuery(query); ors != "" {
 		// All-stopword queries error here; that means "nothing to match",

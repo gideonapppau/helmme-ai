@@ -67,7 +67,7 @@ func parseBookmarks(data []byte) []bookmark {
 			switch c.Data {
 			case "dt":
 				// A DT can hold the folder name (H3) AND the folder body
-				// (DL) at once — check both, not either.
+				// (DL) at once, check both, not either.
 				name := ""
 				if h := findChild(c, "h3"); h != nil {
 					name = strings.TrimSpace(textOf(h))

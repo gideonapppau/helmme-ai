@@ -59,6 +59,18 @@
       button:active:not(:disabled) { transform: scale(0.99); }
       button:disabled { opacity: 0.45; cursor: default; }
       button:focus-visible { outline: 2px solid var(--deep); outline-offset: 2px; }
+      textarea {
+        width: 100%;
+        margin: 0 0 10px;
+        padding: 9px 12px;
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--deep);
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        resize: vertical;
+      }
+      textarea:focus-visible { outline: 2px solid var(--deep); outline-offset: 2px; }
       .msg { min-height: 17px; margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
       .msg.ok { color: var(--deep); }
       .msg.err { color: #b91c1c; }
@@ -78,6 +90,7 @@
       <p class="domain" id="domain">&nbsp;</p>
       <p class="sel" id="sel" hidden></p>
     </div>
+    <textarea id="note" rows="2" placeholder="Add a note (optional)"></textarea>
     <button id="save">Save</button>
     <p class="msg" id="msg" aria-live="polite"></p>
     <script src="lib.js"></script>

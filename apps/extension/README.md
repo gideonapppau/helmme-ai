@@ -1,4 +1,4 @@
-# helmme extension (Chrome, MV3) — local prototype
+# helmme extension (Chrome, MV3), local prototype
 
 One button: **Save**. No collections, no tags, no questions. The system
 files it later; that is the whole point.
@@ -11,7 +11,7 @@ files it later; that is the whole point.
 3. **Load unpacked** → pick `apps/extension`.
 4. Pin helmme to the toolbar. Click it on any page → **Save**.
 
-Restricted pages (`chrome://`, the web store) cannot be saved — the
+Restricted pages (`chrome://`, the web store) cannot be saved, the
 button says so instead of failing quietly.
 
 ## What it sends

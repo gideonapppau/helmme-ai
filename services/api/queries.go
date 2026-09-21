@@ -1,8 +1,8 @@
 // Saved questions (§31): collections are queries, not containers.
-// POST /v1/queries {name, query_text} — stores the question.
-// GET /v1/queries — lists with fresh counts and new-since numbers.
-// POST /v1/queries/:id/open — stamps the view after looking.
-// DELETE /v1/queries/:id — removes it.
+// POST /v1/queries {name, query_text}, stores the question.
+// GET /v1/queries, lists with fresh counts and new-since numbers.
+// POST /v1/queries/:id/open, stamps the view after looking.
+// DELETE /v1/queries/:id, removes it.
 package main
 
 import (

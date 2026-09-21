@@ -1,5 +1,5 @@
 // Embedding tests: client shape, vector literal, rank fusion. No key,
-// no network — the stub server stands in for the provider.
+// no network, the stub server stands in for the provider.
 package main
 
 import (

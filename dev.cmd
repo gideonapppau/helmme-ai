@@ -10,9 +10,9 @@ if errorlevel 1 docker exec helmme-pg pg_isready -U helmme >nul 2>&1
 if errorlevel 1 (
   echo [pg] starting helmme-pg...
   docker rm -f helmme-pg >nul 2>&1
-  docker run -d --name helmme-pg -e POSTGRES_USER=helmme -e POSTGRES_PASSWORD=helmme -e POSTGRES_DB=helmme -p 5433:5432 postgres:16-alpine >nul
+  docker run -d --name helmme-pg -e POSTGRES_USER=helmme -e POSTGRES_PASSWORD=helmme -e POSTGRES_DB=helmme -p 5433:5432 pgvector/pgvector:pg16 >nul
   timeout /t 10 /nobreak >nul
-  docker exec -i helmme-pg psql -U helmme -d helmme < db\migrations\001_init.sql
+  for %%f in (db\migrations\*.sql) do docker exec -i helmme-pg psql -U helmme -d helmme -v ON_ERROR_STOP=1 < "%%f"
 ) else (
   echo [pg] up
 )

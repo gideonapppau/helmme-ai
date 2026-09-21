@@ -22,6 +22,14 @@ import (
 const synthPromptVersion = "synth-v1"
 const synthTopK = 12
 
+// minSynthesisEvidence is the smallest pile the system will reason over.
+// Plain words: one or two saves are clues, not conclusions. Below this,
+// the answer says so instead of guessing (§29).
+const minSynthesisEvidence = 3
+
+// needsMoreEvidence reports thin piles: some evidence, not enough to conclude.
+func needsMoreEvidence(n int) bool { return n > 0 && n < minSynthesisEvidence }
+
 type synthEvidence struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
@@ -211,6 +219,12 @@ func registerSynthRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 		note := ""
 		if len(ev) == 0 {
 			note = "Nothing in your archive matches that yet."
+		} else if needsMoreEvidence(len(ev)) {
+			word := "sources"
+			if len(ev) == 1 {
+				word = "source"
+			}
+			note = "Only " + itoa(len(ev)) + " " + word + " found, not enough for a reliable answer. Here is what exists."
 		} else if apiKey == "" {
 			note = "Summaries need a GROQ_API_KEY on the server. Evidence below."
 		} else {

@@ -1,4 +1,4 @@
-# Eval — golden dataset and release gates (§142–144)
+# Eval, golden dataset and release gates (§142-144)
 
 No ranking or synthesis change ships without running the dataset.
 
@@ -18,7 +18,7 @@ Which notes relate to X?
 
 ## Metrics
 
-- Retrieval: recall@K, precision@K, MRR — per query, tracked over time.
+- Retrieval: recall@K, precision@K, MRR, per query, tracked over time.
 - Synthesis: citation correctness (% claims with supporting cited
   source), groundedness (% claims in Evidence vs Inference vs Unknown),
   hallucination rate (unsupported personal assertions = 0 tolerance).
@@ -27,7 +27,7 @@ Which notes relate to X?
 - Product (§119): capture success, retrieval success, search-to-source
   opens, citation inspections, 7/30/90-day retention.
 
-## Gates (§144) — block release on
+## Gates (§144), block release on
 
 - retrieval regression vs baseline
 - any citation hallucination in the dataset

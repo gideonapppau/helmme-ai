@@ -1,4 +1,4 @@
-# Test routine — run after every iteration
+# Test routine, run after every iteration
 
 Takes about 10 minutes. Half is automatic, half is clicking through.
 
@@ -16,7 +16,7 @@ node --test "..\extension\lib.test.js"
 powershell -ExecutionPolicy Bypass -File docs\eval\run-eval.ps1
 ```
 Last line must read `20 passed, 0 failed`. If it doesn't, the iteration
-is not done — fix first, demo later.
+is not done, fix first, demo later.
 
 ## 2. Click-through (5 minutes, in the browser)
 

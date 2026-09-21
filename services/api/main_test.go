@@ -1,4 +1,4 @@
-// Security + correctness tests. Pure functions only — no Docker needed.
+// Security + correctness tests. Pure functions only, no Docker needed.
 // Covers §8 canonical identity, §26 validation, §55 tenant scoping.
 package main
 

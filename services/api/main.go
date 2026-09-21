@@ -1,5 +1,6 @@
-// Phase-0 slice: capture + FTS search. No AI in this path (§119.1, §119.19).
-// Endpoints: POST /v1/items, GET /v1/items/:id, POST /v1/search, GET /healthz
+// Phase-0 slice: capture + FTS search. Constitution: docs/APP_CONSTITUTION.md.
+// Endpoints: POST /v1/items, GET /v1/items/:id, POST /v1/search, GET /healthz,
+// sources (X first-class §11-§14, §49), recent + archive views (§3, §19).
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,17 +23,25 @@ type ItemIn struct {
 	RawRef     string         `json:"raw_ref"`
 	Original   map[string]any `json:"original"`
 	Title      string         `json:"title"`
+	// ClientID is the phone/app's own id for this save. Send it when the save
+	// might be retried (offline queue). Same id twice = one save, never twins.
+	ClientID string `json:"client_id"`
+	// CapturedAt is when the save really happened, in RFC3339 form
+	// ("2026-09-21T10:00:00Z"). Empty means "right now".
+	CapturedAt string `json:"captured_at"`
 }
 
 const (
-	maxBodyBytes = 1 << 20 // 1MB (§26: size limits)
-	maxTitleLen  = 500
-	maxRawRefLen = 8000
+	maxBodyBytes   = 1 << 20 // 1MB (§26: size limits)
+	maxTitleLen    = 500
+	maxRawRefLen   = 8000
+	maxClientIDLen = 120
 )
 
 var allowedSourceTypes = map[string]bool{
 	"url": true, "text": true, "file": true, "pdf": true,
 	"image": true, "bookmark": true, "note": true,
+	"x": true, "share_sheet": true, // §11-§14 X first-class; §10 share sheet
 }
 
 // validateItem enforces §26: enum, type, size validation before any DB touch.
@@ -49,11 +59,39 @@ func validateItem(in *ItemIn) string {
 	if len(in.Original) > 100 {
 		return "original too large"
 	}
+	if len(in.ClientID) > maxClientIDLen {
+		return "client_id too long"
+	}
+	if in.CapturedAt != "" && !validCaptureTime(in.CapturedAt) {
+		return "captured_at must be RFC3339 like 2026-09-21T10:00:00Z"
+	}
 	return ""
 }
 
+// validCaptureTime checks the "when did this really happen" stamp.
+// Plain words: the date must be readable as a real point in time.
+func validCaptureTime(s string) bool {
+	_, err := time.Parse(time.RFC3339, s)
+	return err == nil
+}
+
+// withQuotedWords files what the user highlighted or jotted alongside a
+// save (extension selected_text / note_text). Plain words: your highlight
+// is findable, not just stored. Capped so a pasted novel can't bloat the index.
+func withQuotedWords(text string, original map[string]any) string {
+	for _, key := range []string{"selected_text", "note_text"} {
+		if s, _ := original[key].(string); strings.TrimSpace(s) != "" {
+			text += "\n" + s
+		}
+	}
+	if len(text) > 16000 {
+		text = text[:16000]
+	}
+	return text
+}
+
 // searchNorm de-slugs text for the index: URL paths like /quick-save-test
-// become findable words. The stored extracted_text is untouched — this twin
+// become findable words. The stored extracted_text is untouched, this twin
 // feeds the tsvector only. Shared by all three index writes.
 var nonWord = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
@@ -64,7 +102,7 @@ func searchNorm(s string) string {
 // canonicalFields returns canonical URL + domain for URL-ish items,
 // nil pair otherwise (stored as SQL NULL).
 func canonicalFields(sourceType, rawRef string) (any, any) {
-	if sourceType == "url" || sourceType == "bookmark" {
+	if sourceType == "url" || sourceType == "bookmark" || sourceType == "x" {
 		c := canonicalizeURL(rawRef)
 		return c, extractDomain(c)
 	}
@@ -72,7 +110,7 @@ func canonicalFields(sourceType, rawRef string) (any, any) {
 }
 
 // tenantID derives ownership server-side (§55). Phase-0: single local user.
-// NEVER trust client-supplied user_id — no such field is read.
+// NEVER trust client-supplied user_id, no such field is read.
 func tenantID(_ *http.Request) string { return "local" }
 
 func secureHeaders(next http.Handler) http.Handler {
@@ -151,8 +189,17 @@ func main() {
 	registerMergeRoutes(mux, pool)
 	registerResurfaceRoutes(mux, pool)
 	registerReviewRoutes(mux, pool)
+	registerSourceRoutes(mux, pool)
+	registerXOAuthRoutes(mux, pool)
+	registerDecisionRoutes(mux, pool)
+	registerProjectRoutes(mux, pool)
+	registerSettingsRoutes(mux, pool)
+	registerExportRoutes(mux, pool)
+	registerTopicRoutes(mux, pool)
+	registerMetricsRoutes(mux, pool)
+	registerEdgeRoutes(mux, pool)
 
-	// POST /v1/items — Tier-0 capture + Tier-1 deterministic (canonicalize, hash, FTS)
+	// POST /v1/items, Tier-0 capture + Tier-1 deterministic (canonicalize, hash, FTS)
 	mux.HandleFunc("POST /v1/items", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		var in ItemIn
@@ -167,6 +214,19 @@ func main() {
 		if in.Original == nil {
 			in.Original = map[string]any{"raw_ref": in.RawRef}
 		}
+		// Retry-safe: a phone that saved offline and retries later carries the
+		// same client_id. If we already stored it, hand back the first save
+		// instead of making a twin. Plain words: same ticket, same seat.
+		if in.ClientID != "" {
+			var dupe string
+			if err := pool.QueryRow(ctx,
+				`SELECT id FROM items WHERE user_id=$1 AND client_id=$2`,
+				tenantID(r), in.ClientID).Scan(&dupe); err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{"id": dupe, "duplicate": true})
+				return
+			}
+		}
 		h := sha256.Sum256([]byte(in.SourceType + "|" + in.RawRef))
 		hash := hex.EncodeToString(h[:])
 		// Canonical identity only means something for URLs. Notes and
@@ -175,10 +235,21 @@ func main() {
 		origJSON, _ := json.Marshal(in.Original)
 
 		var id string
+		// captured_at keeps the real moment ("this morning on the train"), not
+		// the moment the phone finally found signal. Empty means right now.
+		capturedAt := "now()"
+		capturedArg := []any{}
+		if in.CapturedAt != "" {
+			capturedAt = "$10"
+			capturedArg = append(capturedArg, in.CapturedAt)
+		}
+		args := append([]any{
+			tenantID(r), in.SourceType, in.RawRef, hash, origJSON, canonical, in.Title, domain, in.ClientID,
+		}, capturedArg...)
 		err := pool.QueryRow(ctx, `
-		  INSERT INTO items (user_id, source_type, raw_ref, content_hash, original, canonical_url, title, domain)
-		  VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-			tenantID(r), in.SourceType, in.RawRef, hash, origJSON, canonical, in.Title, domain).Scan(&id)
+		  INSERT INTO items (user_id, source_type, raw_ref, content_hash, original, canonical_url, title, domain, client_id, captured_at)
+		  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,`+capturedAt+`) RETURNING id`,
+			args...).Scan(&id)
 		if err != nil {
 			log.Printf("capture failed item=opaque err=%T", err) // §64: opaque ids, never raw content
 			http.Error(w, "internal error", 500)
@@ -190,6 +261,7 @@ func main() {
 		if c, ok := canonical.(string); ok && c != "" {
 			text = in.Title + "\n" + c
 		}
+		text = withQuotedWords(text, in.Original)
 		_, err = pool.Exec(ctx, `
 		  INSERT INTO item_contents (item_id, extracted_text, search_tsv)
 		  VALUES ($1,$2,to_tsvector('english',$2 || ' ' || $3))`, id, text, searchNorm(text))
@@ -208,7 +280,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]any{"id": id})
 	})
 
-	// POST /v1/search — FTS first (§89, §119.9). Embeddings layer added later.
+	// POST /v1/search, FTS first (§89, §119.9). Embeddings layer added later.
 	mux.HandleFunc("POST /v1/search", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		var q struct {
@@ -234,6 +306,10 @@ func main() {
 			http.Error(w, "internal error", 500)
 			return
 		}
+		// The trace never breaks the answer: if logging fails, search still stands.
+		_, _ = pool.Exec(ctx, `
+		  INSERT INTO search_events (user_id, query, hits, relaxed)
+		  VALUES ($1,$2,$3,$4)`, tenantID(r), q.Query, len(hits), relaxed)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"hits": hits, "relaxed": relaxed, "scope": scope})
 	})

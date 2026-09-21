@@ -1,9 +1,9 @@
-# Eval seed — 20 queries with known answers (§142)
+# Eval seed, 20 queries with known answers (§142)
 
 Run: `powershell -ExecutionPolicy Bypass -File docs/eval/run-eval.ps1`
 (add `-Api http://localhost:8081` to point elsewhere).
 Pass = expected title in top 3 hits. Run before every search change.
-If the archive changes, update expectations — never weaken them silently.
+If the archive changes, update expectations, never weaken them silently.
 
 | # | Query | Must find |
 |---|---|---|

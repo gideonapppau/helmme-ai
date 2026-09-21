@@ -14,7 +14,7 @@ import (
 )
 
 // safeJoin keeps resolved paths inside dir. Rejects escapes, absolute
-// paths, and separators — storage refs are content hashes, never names.
+// paths, and separators, storage refs are content hashes, never names.
 func safeJoin(dir, ref string) (string, bool) {
 	if ref == "" || ref == "." || ref != filepath.Base(ref) {
 		return "", false
@@ -49,8 +49,26 @@ func registerFileRoutes(mux *http.ServeMux, pool *pgxpool.Pool, uploadDir string
 		  JOIN items i ON i.id = a.item_id
 		  WHERE a.item_id=$1 AND i.user_id=$2`, id, user).Scan(&storageRef, &mime)
 		if err != nil {
-			http.Error(w, "not found", 404)
-			return
+			// Text and generic files carry no asset row (their words are the asset).
+			// Their bytes still live under raw_ref ("upload/<hash>.<ext>").
+			// Plain words: same locked door, second key.
+			var sourceType, rawRef, origMime string
+			if err2 := pool.QueryRow(ctx, `
+			  SELECT source_type, raw_ref, COALESCE(original->>'mime','')
+			  FROM items WHERE id=$1 AND user_id=$2`,
+				id, user).Scan(&sourceType, &rawRef, &origMime); err2 != nil {
+				http.Error(w, "not found", 404)
+				return
+			}
+			if (sourceType != "text" && sourceType != "file") || !strings.HasPrefix(rawRef, "upload/") {
+				http.Error(w, "not found", 404)
+				return
+			}
+			storageRef = strings.TrimPrefix(rawRef, "upload/")
+			mime = origMime
+			if mime == "" {
+				mime = "text/plain; charset=utf-8"
+			}
 		}
 		path, ok := safeJoin(uploadDir, storageRef)
 		if !ok {
